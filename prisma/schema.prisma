@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  role         UserRole   @default(USER)
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  sessions     Session[]
+  modules      Module[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model Module {
+  id         String    @id @default(cuid())
+  ownerId    String
+  title      String
+  subtitle   String?
+  days       Int       @default(40)
+  activities String[]
+  startDate  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  user       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  phases     Phase[]
+  checks     Check[]
+  notes      Note[]
+
+  @@index([ownerId])
+}
+
+model Phase {
+  id          String @id @default(cuid())
+  moduleId    String
+  label       String
+  startDay    Int
+  endDay      Int
+  description String
+  position    Int
+  module      Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@index([moduleId, position])
+}
+
+model Check {
+  id          String   @id @default(cuid())
+  moduleId    String
+  day         Int
+  activityIdx Int
+  checkedAt   DateTime @default(now())
+  module      Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([moduleId, day, activityIdx])
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  moduleId  String
+  phaseKey  String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([moduleId, phaseKey])
+}
+
+model FeatureSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
