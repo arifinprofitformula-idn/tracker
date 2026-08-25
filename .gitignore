@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+.env
+.env.*
+!.env.example
+.secure/
+*.log
+coverage/
+.deploy*/
+tsconfig.tsbuildinfo
+tests/*.png
+.DS_Store
+public/sw.js.tmp
