@@ -1,1 +1,0 @@
-export default function Offline(){return <main className="auth-shell"><section className="auth-card"><div className="eyebrow">Tracker System</div><h1>Sedang offline</h1><p className="muted">Sambungkan internet untuk menyinkronkan progres tracker.</p></section></main>}
