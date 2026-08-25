@@ -54,6 +54,11 @@ function Initialize-DatabaseCluster {
 
 function Test-ServerRunning {
   & $PgCtl status "-D" $DataDir *> $null
+  if ($LASTEXITCODE -eq 0) {
+    return $true
+  }
+
+  & $Psql -h "localhost" -p "$Port" -U "postgres" -d "postgres" -tAc "SELECT 1" *> $null
   return $LASTEXITCODE -eq 0
 }
 
@@ -111,7 +116,12 @@ switch ($Command) {
   }
   "status" {
     if (Test-Path (Join-Path $DataDir "PG_VERSION")) {
-      & $PgCtl status "-D" $DataDir
+      if (Test-ServerRunning) {
+        & $Psql "postgresql://${DbUser}:${DbPassword}@localhost:$Port/$DbName" -c "SELECT current_database(), current_user;"
+      } else {
+        Write-Host "Local PostgreSQL is not running."
+        exit 1
+      }
     } else {
       Write-Host "Local PostgreSQL data directory does not exist yet."
       exit 1
