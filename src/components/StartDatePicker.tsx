@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type StartDatePickerProps = {
@@ -29,6 +29,14 @@ function parseIso(value?: string | null) {
 
 function sameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function formatIndonesianDate(date: Date) {
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
 }
 
 export default function StartDatePicker({ value, onChange }: StartDatePickerProps) {
@@ -83,13 +91,24 @@ export default function StartDatePicker({ value, onChange }: StartDatePickerProp
     setViewDate((current) => new Date(current.getFullYear(), current.getMonth() + step, 1));
   }
 
-  const displayValue = selectedDate ? toIso(selectedDate) : "";
+  const displayValue = selectedDate ? formatIndonesianDate(selectedDate) : "Pilih tanggal mulai";
 
   return (
     <div className="date-picker" ref={wrapperRef}>
-      <button className="date-trigger" type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-        <span>{displayValue || "Pilih tanggal mulai"}</span>
-        <small>YYYY-MM-DD</small>
+      <button
+        className="date-trigger"
+        type="button"
+        aria-label="Buka kalender tanggal mulai"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="date-trigger-icon" aria-hidden="true"><CalendarDays size={20} /></span>
+        <span className="date-trigger-copy">
+          <strong>{displayValue}</strong>
+          <small>{selectedDate ? "Ketuk untuk mengubah tanggal" : "Ketuk untuk membuka kalender"}</small>
+        </span>
+        <span className="date-trigger-action" aria-hidden="true">Pilih</span>
       </button>
 
       {open && (
