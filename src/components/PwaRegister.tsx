@@ -27,6 +27,7 @@ export default function PwaRegister() {
     <div className="install-widget">
       <button className="install-trigger" type="button" aria-label="Install aplikasi" onClick={() => setOpen((value) => !value)}>
         <Download size={18} />
+        <span>Install app</span>
       </button>
       {open && (
         <div className="install-popover" role="dialog" aria-label="Install aplikasi">

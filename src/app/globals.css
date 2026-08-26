@@ -2585,15 +2585,20 @@ body {
 }
 
 .install-trigger {
-  width: 46px;
+  width: auto;
   height: 46px;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 16px;
   border: 1px solid rgba(223, 232, 244, 0.95);
   border-radius: 999px;
   background: #fff;
   color: #1d5360;
   box-shadow: 0 14px 34px rgba(30, 52, 86, 0.14);
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .install-popover {
