@@ -1,1 +1,16 @@
-{"name":"Tracker System Coach Arifin","short_name":"Tracker","description":"Bangun konsistensi harian","start_url":"/dashboard","scope":"/","display":"standalone","background_color":"#FBF8F2","theme_color":"#1B2A4A","icons":[{"src":"/icons/icon-192.png","sizes":"192x192","type":"image/png"},{"src":"/icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}]}
+{
+  "name": "Arva Tracker",
+  "short_name": "Arva Tracker",
+  "description": "Langkah kecil, perubahan besar. Daily plan dan progress tracker untuk konsistensi harian.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#071A2D",
+  "theme_color": "#071A2D",
+  "categories": ["productivity", "lifestyle"],
+  "icons": [
+    { "src": "/brand/pwa-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/pwa-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/brand/pwa-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

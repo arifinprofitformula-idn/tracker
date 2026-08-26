@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { BarChart3, CalendarClock, ClipboardList, LayoutDashboard, LogOut, Settings, ShieldCheck, UserRound } from "lucide-react";
+import Image from "next/image";
+import { CalendarClock, ClipboardList, LayoutDashboard, LogOut, Settings, ShieldCheck, UserRound } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type HeaderUser = {
@@ -52,10 +53,8 @@ export default function AppHeader({ user, active = "dashboard", onProfile, onLog
   return (
     <header className="top app-header">
       <div className="brand">
-        <span className="brand-mark">
-          <BarChart3 size={20} />
-        </span>
-        <span>Daily Plan & Tracker</span>
+        <Image className="header-brand-logo" src="/brand/arva-tracker-symbol.png" alt="Logo Arva Tracker" width={48} height={48} priority />
+        <span className="header-brand-copy"><b>Arva Tracker</b><small>Langkah kecil, perubahan besar.</small></span>
       </div>
 
       <div className="profile-menu" ref={menuRef}>

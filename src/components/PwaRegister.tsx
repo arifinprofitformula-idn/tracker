@@ -2,12 +2,14 @@
 
 import { Download, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
 };
 
 export default function PwaRegister() {
+  const pathname = usePathname();
   const [event, setEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -21,7 +23,7 @@ export default function PwaRegister() {
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
 
-  if (!event) return null;
+  if (!event || ["/", "/login", "/register", "/reset-password", "/logout"].includes(pathname)) return null;
 
   return (
     <div className="install-widget">

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import {
   ArrowRight,
   BarChart3,
@@ -69,9 +70,9 @@ export default function Home() {
     <main className="landing-shell">
       <header className="landing-nav">
         <div className="landing-container nav-inner">
-          <Link href="/" className="landing-logo" aria-label="Tracker System, halaman utama">
-            <span className="logo-mark"><ClipboardCheck size={22} strokeWidth={2.2} /></span>
-            <span>Tracker <strong>System</strong></span>
+          <Link href="/" className="landing-logo" aria-label="Arva Tracker, halaman utama">
+            <Image src="/brand/arva-tracker-symbol.png" alt="Logo Arva Tracker" width={44} height={44} priority />
+            <span>Arva <strong>Tracker</strong></span>
           </Link>
           <nav className="desktop-nav" aria-label="Navigasi utama">
             <a href="#cara-kerja">Cara kerja</a>
@@ -96,7 +97,7 @@ export default function Home() {
             <div className="landing-eyebrow"><Sparkles size={14} /> Sistem progres personal</div>
             <h1>Bangun konsistensi.<br /><span>Ukur setiap kemajuan.</span></h1>
             <p className="hero-lead">
-              Ubah target besar menjadi langkah harian yang jelas. Tracker System membantu Anda fokus, mencatat aktivitas, dan melihat progres dalam satu dashboard.
+              Ubah target besar menjadi langkah harian yang jelas. Arva Tracker membantu Anda fokus, mencatat aktivitas, dan melihat progres dalam satu dashboard.
             </p>
             <div className="hero-actions">
               <Link href="/register" className="landing-button button-primary">
@@ -111,12 +112,12 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="product-stage" aria-label="Pratinjau dashboard Tracker System">
+          <div className="product-stage" aria-label="Pratinjau dashboard Arva Tracker">
             <div className="stage-orbit orbit-a" />
             <div className="stage-orbit orbit-b" />
             <div className="product-window">
               <div className="window-bar">
-                <span className="window-brand"><ClipboardCheck size={15} /> Tracker System</span>
+                <span className="window-brand"><ClipboardCheck size={15} /> Arva Tracker</span>
                 <span className="window-status"><i /> Aktif</span>
               </div>
               <div className="window-content">
@@ -158,7 +159,7 @@ export default function Home() {
           <div className="section-heading centered">
             <span className="section-kicker">DARI NIAT MENJADI SISTEM</span>
             <h2>Masalahnya bukan kurang niat.<br />Masalahnya progres tidak terlihat.</h2>
-            <p>Ketika aktivitas tidak tercatat, kemajuan terasa samar. Tracker System membuat langkah berikutnya selalu jelas.</p>
+            <p>Ketika aktivitas tidak tercatat, kemajuan terasa samar. Arva Tracker membuat langkah berikutnya selalu jelas.</p>
           </div>
           <div className="pain-gain-grid">
             <article className="contrast-card pain-card">
@@ -167,7 +168,7 @@ export default function Home() {
               <ul>{pains.map((item) => <li key={item}><span>×</span>{item}</li>)}</ul>
             </article>
             <article className="contrast-card gain-card">
-              <div className="contrast-label"><Sparkles size={15} /> Dengan Tracker System</div>
+              <div className="contrast-label"><Sparkles size={15} /> Dengan Arva Tracker</div>
               <h3>Yang berubah saat progres terlihat</h3>
               <ul>{gains.map((item) => <li key={item}><Check size={16} />{item}</li>)}</ul>
             </article>

@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ArrowRight, BarChart3 } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { readJson } from "@/lib/http";
 
@@ -45,10 +46,14 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
       <div className="auth-orbit auth-orbit-two" />
       <section className="auth-card" aria-labelledby="auth-title">
         <div className="auth-intro">
-          <div className="auth-brand-mark" aria-hidden="true">
-            <BarChart3 size={32} strokeWidth={2.2} />
+          <div className="auth-brand-lockup">
+            <Image className="auth-brand-logo" src="/brand/arva-tracker-symbol.png" alt="Logo Arva Tracker" width={112} height={112} priority />
+            <div>
+              <div className="auth-brand-name">Arva Tracker</div>
+              <div className="auth-brand-tagline">Langkah kecil, perubahan besar.</div>
+            </div>
           </div>
-          <div className="eyebrow">Coach Arifin</div>
+          <div className="eyebrow">Daily plan & progress tracker</div>
           <h1 id="auth-title">{isLogin ? "Selamat datang" : "Mulai perjalanan"}</h1>
           <p className="muted">Satu sistem ringan untuk menjaga konsistensi harian.</p>
         </div>
@@ -86,6 +91,8 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
         <p className="auth-switch muted">
           {isLogin ? (
             <>
+              <Link className="link auth-reset-link" href="/reset-password">Ubah password</Link>
+              <span aria-hidden="true"> · </span>
               Belum punya akun?{" "}
               <Link className="link" href="/register">
                 Daftar

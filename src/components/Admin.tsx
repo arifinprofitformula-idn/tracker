@@ -51,8 +51,7 @@ export default function Admin() {
   }
 
   async function logout() {
-    await post("/api/auth/logout", {});
-    router.replace("/login");
+    router.push("/logout");
   }
 
   async function saveSetting(e: FormEvent<HTMLFormElement>) {
