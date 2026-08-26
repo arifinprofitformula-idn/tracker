@@ -6,6 +6,8 @@ import MobileBottomNav from "@/components/MobileBottomNav";
 import ProfileSettings from "@/components/ProfileSettings";
 import {
   BellRing,
+  CalendarClock,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -18,13 +20,14 @@ import {
   Rows3,
   Trash2,
   Unlock,
+  X,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { findOverlappingBlock, formatMinutes, MAX_BLOCKS_PER_DAY, parseTimeToMinutes, shiftISODate, sortByStart, todayLocalISO } from "@/lib/dailyPlan";
+import { effectiveBlockStatus, findOverlappingBlock, formatMinutes, MAX_BLOCKS_PER_DAY, parseTimeToMinutes, shiftISODate, sortByStart, todayLocalISO } from "@/lib/dailyPlan";
 
-type Block = { id: string; label: string; startMinute: number; endMinute: number };
+type Block = { id: string; label: string; startMinute: number; endMinute: number; status: "SCHEDULED" | "COMPLETED" | "RESCHEDULED"; completedAt: string | null; rescheduledAt: string | null; rescheduledToBlockId: string | null; rescheduleReason: string | null };
 type PlanMeta = { id: string; date: string; locked: boolean } | null;
-type HistoryItem = { date: string; locked: boolean; blockCount: number };
+type HistoryItem = { date: string; locked: boolean; blockCount: number; completedCount: number; rescheduledCount: number };
 type User = { name: string; email: string; role: string };
 
 const jsonHeaders = { "Content-Type": "application/json" };
@@ -39,6 +42,8 @@ export default function DailyPlan() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [view, setView] = useState<"timeline" | "grid">("timeline");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [rescheduleBlock, setRescheduleBlock] = useState<Block | null>(null);
+  const [undoBlockId, setUndoBlockId] = useState<string | null>(null);
   const [profileModal, setProfileModal] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -48,6 +53,7 @@ export default function DailyPlan() {
   const endRef = useRef<HTMLInputElement>(null);
   const timers = useRef<number[]>([]);
   const notifiedRef = useRef<Set<string>>(new Set());
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(
     async (targetDate: string) => {
@@ -98,9 +104,12 @@ export default function DailyPlan() {
     };
   }, [notifyOn, blocks, date]);
 
-  const sorted = useMemo(() => sortByStart(blocks), [blocks]);
+  const sorted = useMemo(() => sortByStart(blocks).sort((a, b) => {
+    const rank = (block: Block) => block.status === "COMPLETED" ? 2 : block.status === "RESCHEDULED" ? 3 : 1;
+    return rank(a) - rank(b);
+  }), [blocks]);
   const locked = !!plan?.locked;
-  const atLimit = blocks.length >= MAX_BLOCKS_PER_DAY;
+  const atLimit = blocks.filter((block) => block.status !== "RESCHEDULED").length >= MAX_BLOCKS_PER_DAY;
   const isToday = date === todayLocalISO();
 
   async function submitPost(path: string, body: unknown) {
@@ -132,7 +141,7 @@ export default function DailyPlan() {
     const endMinute = parseTimeToMinutes(String(fd.get("endTime") || ""));
     if (startMinute === null || endMinute === null) return setError("Format waktu tidak valid.");
     if (endMinute <= startMinute) return setError("Waktu selesai harus setelah waktu mulai.");
-    if (findOverlappingBlock(blocks, { startMinute, endMinute })) return setError("Blok waktu bertabrakan dengan blok lain.");
+    if (findOverlappingBlock(blocks.filter((block) => block.status !== "RESCHEDULED"), { startMinute, endMinute })) return setError("Blok waktu bertabrakan dengan blok lain.");
     const created = await submitPost("/api/daily-plan/blocks", { action: "add", date, label, startMinute, endMinute });
     if (created) {
       setNotice("Blok waktu berhasil ditambahkan.");
@@ -166,9 +175,39 @@ export default function DailyPlan() {
     }
   }
 
+  async function setCompleted(block: Block, completed: boolean) {
+    const result = await submitPost("/api/daily-plan/complete", { blockId: block.id, completed });
+    if (!result) return;
+    setNotice(completed ? `${block.label} ditandai selesai.` : `Status ${block.label} dikembalikan.`);
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    setUndoBlockId(completed ? block.id : null);
+    if (completed) undoTimerRef.current = setTimeout(() => setUndoBlockId(null), 5000);
+    await load(date);
+  }
+
+  async function submitReschedule(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!rescheduleBlock) return;
+    const fd = new FormData(e.currentTarget);
+    const targetDate = String(fd.get("targetDate") || "");
+    const startMinute = parseTimeToMinutes(String(fd.get("startTime") || ""));
+    const endMinute = parseTimeToMinutes(String(fd.get("endTime") || ""));
+    const reason = String(fd.get("reason") || "").trim();
+    if (!targetDate || startMinute === null || endMinute === null) return setError("Tanggal dan jam baru wajib diisi.");
+    if (endMinute <= startMinute) return setError("Waktu selesai harus setelah waktu mulai.");
+    const result = await submitPost("/api/daily-plan/reschedule", { blockId: rescheduleBlock.id, targetDate, startMinute, endMinute, reason });
+    if (!result) return;
+    setNotice(`${rescheduleBlock.label} dipindahkan ke ${targetDate}.`);
+    setRescheduleBlock(null);
+    await load(date);
+  }
+
+  function statusOf(block: Block) {
+    return effectiveBlockStatus(block.status, date, block.endMinute);
+  }
+
   async function logout() {
-    await submitPost("/api/auth/logout", {});
-    router.replace("/login");
+    router.push("/logout");
   }
 
   async function toggleLock() {
@@ -205,6 +244,31 @@ export default function DailyPlan() {
   function focusAddForm() {
     document.getElementById("add-time-block")?.scrollIntoView({ behavior: "smooth", block: "start" });
     window.setTimeout(() => document.querySelector<HTMLInputElement>("#add-time-block input[name='label']")?.focus(), 250);
+  }
+
+  function executionActions(block: Block) {
+    const status = statusOf(block);
+    if (status === "RESCHEDULED") return <span className="block-status rescheduled">Dipindahkan</span>;
+    return (
+      <div className="execution-actions">
+        <button
+          type="button"
+          className={`done-action ${status === "COMPLETED" ? "completed" : ""}`}
+          onClick={() => setCompleted(block, status !== "COMPLETED")}
+          aria-label={status === "COMPLETED" ? `Batalkan selesai ${block.label}` : `Tandai selesai ${block.label}`}
+        >
+          <CheckCircle2 size={16} />
+          {status === "COMPLETED" ? "Selesai" : "Done"}
+        </button>
+        {status !== "COMPLETED" && (
+          <button type="button" className="reschedule-action" onClick={() => setRescheduleBlock(block)} aria-label={`Reschedule ${block.label}`}>
+            <CalendarClock size={16} />
+            Reschedule
+          </button>
+        )}
+        {status === "MISSED" && <span className="block-status missed">Terlewat</span>}
+      </div>
+    );
   }
 
   if (!loaded || !user) {
@@ -329,7 +393,7 @@ export default function DailyPlan() {
           <section className="card glass-card no-print">
             <ol className="timeline">
               {sorted.map((b) => (
-                <li className="timeline-block" key={b.id}>
+                <li className={`timeline-block status-${statusOf(b).toLowerCase()}`} key={b.id}>
                   <span className="time-badge">
                     {formatMinutes(b.startMinute)} - {formatMinutes(b.endMinute)}
                   </span>
@@ -348,11 +412,12 @@ export default function DailyPlan() {
                   ) : (
                     <div className="timeline-block-body">
                       <span className="timeline-block-label">{b.label}</span>
+                      {executionActions(b)}
                       <div className="timeline-block-actions">
-                        <button type="button" className="secondary icon-only" onClick={() => setEditingId(b.id)} disabled={locked} aria-label={`Edit ${b.label}`}>
+                        <button type="button" className="secondary icon-only" onClick={() => setEditingId(b.id)} disabled={locked || b.status !== "SCHEDULED"} aria-label={`Edit ${b.label}`}>
                           <Clock3 size={16} />
                         </button>
-                        <button type="button" className="danger icon-only" onClick={() => deleteBlock(b.id)} disabled={locked} aria-label={`Hapus ${b.label}`}>
+                        <button type="button" className="danger icon-only" onClick={() => deleteBlock(b.id)} disabled={locked || b.status === "RESCHEDULED"} aria-label={`Hapus ${b.label}`}>
                           <Trash2 size={16} />
                         </button>
                       </div>
@@ -365,16 +430,17 @@ export default function DailyPlan() {
         ) : (
           <section className="block-grid no-print">
             {sorted.map((b) => (
-              <article className="card glass-card block-card" key={b.id}>
+              <article className={`card glass-card block-card status-${statusOf(b).toLowerCase()}`} key={b.id}>
                 <span className="time-badge">
                   {formatMinutes(b.startMinute)} - {formatMinutes(b.endMinute)}
                 </span>
                 <b>{b.label}</b>
+                {executionActions(b)}
                 <div className="timeline-block-actions">
-                  <button type="button" className="secondary icon-only" onClick={() => setEditingId(b.id)} disabled={locked} aria-label={`Edit ${b.label}`}>
+                  <button type="button" className="secondary icon-only" onClick={() => setEditingId(b.id)} disabled={locked || b.status !== "SCHEDULED"} aria-label={`Edit ${b.label}`}>
                     <Clock3 size={16} />
                   </button>
-                  <button type="button" className="danger icon-only" onClick={() => deleteBlock(b.id)} disabled={locked} aria-label={`Hapus ${b.label}`}>
+                  <button type="button" className="danger icon-only" onClick={() => deleteBlock(b.id)} disabled={locked || b.status === "RESCHEDULED"} aria-label={`Hapus ${b.label}`}>
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -398,7 +464,7 @@ export default function DailyPlan() {
               {history.map((h) => (
                 <button key={h.date} type="button" className={`history-item ${h.date === date ? "active" : ""}`} onClick={() => setDate(h.date)}>
                   <span>{h.date}</span>
-                  <span className="muted">{h.blockCount} aktivitas</span>
+                  <span className="muted">{h.completedCount} selesai · {h.rescheduledCount} dipindah · {h.blockCount} total</span>
                   {h.locked && <Lock size={13} />}
                 </button>
               ))}
@@ -436,6 +502,48 @@ export default function DailyPlan() {
         onSettings={() => setProfileModal(true)}
         primaryLabel="Tambah blok waktu"
       />
+
+      {undoBlockId && (() => {
+        const block = blocks.find((item) => item.id === undoBlockId);
+        return block ? (
+          <div className="undo-toast" role="status">
+            <span>Aktivitas selesai.</span>
+            <button type="button" onClick={() => setCompleted(block, false)}>Undo</button>
+          </div>
+        ) : null;
+      })()}
+
+      {rescheduleBlock && (
+        <div className="modal reschedule-modal" role="dialog" aria-modal="true" aria-labelledby="reschedule-title" onClick={() => setRescheduleBlock(null)}>
+          <form className="reschedule-sheet" onSubmit={submitReschedule} onClick={(event) => event.stopPropagation()}>
+            <div className="reschedule-heading">
+              <div>
+                <span className="eyebrow">Atur jadwal baru</span>
+                <h2 id="reschedule-title">Reschedule</h2>
+                <p className="muted">{rescheduleBlock.label}</p>
+              </div>
+              <button type="button" className="secondary icon-only" aria-label="Tutup reschedule" onClick={() => setRescheduleBlock(null)}><X size={18} /></button>
+            </div>
+            <div className="reschedule-quick-actions">
+              <button type="button" className="pill" onClick={(event) => {
+                const form = event.currentTarget.form;
+                if (form) (form.elements.namedItem("targetDate") as HTMLInputElement).value = todayLocalISO();
+              }}>Hari ini</button>
+              <button type="button" className="pill" onClick={(event) => {
+                const form = event.currentTarget.form;
+                if (form) (form.elements.namedItem("targetDate") as HTMLInputElement).value = shiftISODate(todayLocalISO(), 1);
+              }}>Besok</button>
+            </div>
+            <div className="field"><label>Tanggal baru</label><input name="targetDate" type="date" min={todayLocalISO()} defaultValue={date < todayLocalISO() ? todayLocalISO() : date} required /></div>
+            <div className="reschedule-times">
+              <div className="field"><label>Jam mulai baru</label><input name="startTime" type="time" defaultValue={formatMinutes(rescheduleBlock.startMinute)} required /></div>
+              <div className="field"><label>Jam selesai baru</label><input name="endTime" type="time" defaultValue={formatMinutes(rescheduleBlock.endMinute)} required /></div>
+            </div>
+            <div className="field"><label>Alasan <span className="muted">(opsional)</span></label><textarea name="reason" maxLength={200} placeholder="Contoh: ada agenda mendadak" /></div>
+            <button className="primary icon-button full" type="submit"><CalendarClock size={18} />Simpan jadwal baru</button>
+          </form>
+        </div>
+      )}
 
       {profileModal && (
         <div className="modal profile-modal" onClick={() => setProfileModal(false)}>

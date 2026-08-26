@@ -30,6 +30,14 @@ export const dailyPlanBlockActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("delete"), blockId: z.string().cuid() }),
 ]);
 export const dailyPlanLockSchema = z.object({ date: dailyPlanDateSchema, locked: z.boolean() });
+export const dailyPlanCompleteSchema = z.object({ blockId: z.string().cuid(), completed: z.boolean() });
+export const dailyPlanRescheduleSchema = z.object({
+  blockId: z.string().cuid(),
+  targetDate: dailyPlanDateSchema,
+  startMinute: minuteSchema,
+  endMinute: minuteSchema,
+  reason: z.string().trim().max(200).optional().transform(v => v || undefined),
+});
 export const profileSettingsSchema = z.object({
   name: z.string().trim().min(2).max(80),
   currentPassword: z.string().max(128).optional().transform(v => v || undefined),

@@ -28,6 +28,22 @@ export function sortByStart<T extends { startMinute: number }>(blocks: T[]): T[]
   return [...blocks].sort((a, b) => a.startMinute - b.startMinute);
 }
 
+export type EffectiveBlockStatus = "SCHEDULED" | "COMPLETED" | "RESCHEDULED" | "MISSED";
+
+export function effectiveBlockStatus(
+  status: "SCHEDULED" | "COMPLETED" | "RESCHEDULED",
+  planDate: string,
+  endMinute: number,
+  now = new Date(),
+): EffectiveBlockStatus {
+  if (status !== "SCHEDULED") return status;
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  if (planDate < today) return "MISSED";
+  if (planDate > today) return "SCHEDULED";
+  const nowMinute = now.getHours() * 60 + now.getMinutes();
+  return endMinute < nowMinute ? "MISSED" : "SCHEDULED";
+}
+
 export function todayLocalISO(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

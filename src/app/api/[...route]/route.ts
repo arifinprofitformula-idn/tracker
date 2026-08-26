@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
-import { UserRole, UserStatus } from "@prisma/client";
+import { TimeBlockStatus, UserRole, UserStatus } from "@prisma/client";
 import { createSession, hashPassword, prisma, revokeSession, SESSION_DAYS, validateSession, verifyPassword } from "@/lib/prisma";
-import { activityActionSchema, adminUserSchema, checkSchema, dailyPlanBlockActionSchema, dailyPlanLockSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, profileSettingsSchema, registerSchema, settingSchema, startSchema } from "@/lib/validation";
+import { activityActionSchema, adminUserSchema, checkSchema, dailyPlanBlockActionSchema, dailyPlanCompleteSchema, dailyPlanLockSchema, dailyPlanRescheduleSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, profileSettingsSchema, registerSchema, settingSchema, startSchema } from "@/lib/validation";
 import { findOverlappingBlock, MAX_BLOCKS_PER_DAY } from "@/lib/dailyPlan";
 import { buildDefaultPhases } from "@/lib/tracker";
 
@@ -64,12 +64,32 @@ export async function GET(req: NextRequest) {
     });
     return json({
       plan: plan ? { id: plan.id, date: dateParam, locked: plan.locked } : null,
-      blocks: (plan?.blocks ?? []).map(b => ({ id: b.id, label: b.label, startMinute: b.startMinute, endMinute: b.endMinute })),
+      blocks: (plan?.blocks ?? []).map(b => ({
+        id: b.id,
+        label: b.label,
+        startMinute: b.startMinute,
+        endMinute: b.endMinute,
+        status: b.status,
+        completedAt: b.completedAt?.toISOString() ?? null,
+        rescheduledAt: b.rescheduledAt?.toISOString() ?? null,
+        rescheduledToBlockId: b.rescheduledToBlockId,
+        rescheduleReason: b.rescheduleReason,
+      })),
     });
   }
   if (path === "/api/daily-plan/history") {
-    const plans = await prisma.dailyPlan.findMany({ where: { userId: auth.userId }, orderBy: { date: "desc" }, take: 60, include: { _count: { select: { blocks: true } } } });
-    return json(plans.map(p => ({ date: p.date.toISOString().slice(0, 10), locked: p.locked, blockCount: p._count.blocks })));
+    const plans = await prisma.dailyPlan.findMany({ where: { userId: auth.userId }, orderBy: { date: "desc" }, take: 60, include: { blocks: true } });
+    return json(plans.map(p => {
+      const completedCount = p.blocks.filter(b => b.status === "COMPLETED").length;
+      const rescheduledCount = p.blocks.filter(b => b.status === "RESCHEDULED").length;
+      return {
+        date: p.date.toISOString().slice(0, 10),
+        locked: p.locked,
+        blockCount: p.blocks.length,
+        completedCount,
+        rescheduledCount,
+      };
+    }));
   }
   if (path === "/api/admin/users") {
     if (auth.role !== "ADMIN") return json({ error: "Forbidden" }, 403);
@@ -162,6 +182,7 @@ export async function POST(req: NextRequest) {
       const block = await prisma.timeBlock.findFirst({ where: { id: action.blockId, plan: { userId: auth.userId } }, include: { plan: true } });
       if (!block) return json({ error: "Forbidden" }, 403);
       if (block.plan.locked) return json({ error: "Rencana harian ini sudah dikunci" }, 403);
+      if (block.status === "RESCHEDULED") return json({ error: "Riwayat reschedule tidak dapat dihapus" }, 409);
       await prisma.timeBlock.delete({ where: { id: block.id } });
       return json({ success: true });
     }
@@ -172,7 +193,8 @@ export async function POST(req: NextRequest) {
       const block = await prisma.timeBlock.findFirst({ where: { id: action.blockId, plan: { userId: auth.userId } }, include: { plan: { include: { blocks: true } } } });
       if (!block) return json({ error: "Forbidden" }, 403);
       if (block.plan.locked) return json({ error: "Rencana harian ini sudah dikunci" }, 403);
-      if (findOverlappingBlock(block.plan.blocks, action, block.id)) return json({ error: "Blok waktu bertabrakan dengan blok lain" }, 409);
+      if (block.status !== "SCHEDULED") return json({ error: "Hanya jadwal aktif yang dapat diedit" }, 409);
+      if (findOverlappingBlock(block.plan.blocks.filter(b => b.status !== "RESCHEDULED"), action, block.id)) return json({ error: "Blok waktu bertabrakan dengan blok lain" }, 409);
       return json(await prisma.timeBlock.update({ where: { id: block.id }, data: { label: action.label, startMinute: action.startMinute, endMinute: action.endMinute } }));
     }
 
@@ -184,10 +206,64 @@ export async function POST(req: NextRequest) {
       include: { blocks: true },
     });
     if (plan.locked) return json({ error: "Rencana harian ini sudah dikunci" }, 403);
-    if (plan.blocks.length >= MAX_BLOCKS_PER_DAY) return json({ error: `Maksimal ${MAX_BLOCKS_PER_DAY} blok waktu per hari` }, 409);
-    if (findOverlappingBlock(plan.blocks, action)) return json({ error: "Blok waktu bertabrakan dengan blok lain" }, 409);
+    const activeBlocks = plan.blocks.filter(b => b.status !== "RESCHEDULED");
+    if (activeBlocks.length >= MAX_BLOCKS_PER_DAY) return json({ error: `Maksimal ${MAX_BLOCKS_PER_DAY} blok waktu per hari` }, 409);
+    if (findOverlappingBlock(activeBlocks, action)) return json({ error: "Blok waktu bertabrakan dengan blok lain" }, 409);
 
     return json(await prisma.timeBlock.create({ data: { planId: plan.id, label: action.label, startMinute: action.startMinute, endMinute: action.endMinute } }), 201);
+  }
+  if (path === "/api/daily-plan/complete") {
+    const parsed = dailyPlanCompleteSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    const block = await prisma.timeBlock.findFirst({ where: { id: parsed.data.blockId, plan: { userId: auth.userId } } });
+    if (!block) return json({ error: "Forbidden" }, 403);
+    if (block.status === "RESCHEDULED") return json({ error: "Jadwal yang sudah dipindahkan tidak dapat diselesaikan" }, 409);
+    return json(await prisma.timeBlock.update({
+      where: { id: block.id },
+      data: parsed.data.completed
+        ? { status: TimeBlockStatus.COMPLETED, completedAt: new Date() }
+        : { status: TimeBlockStatus.SCHEDULED, completedAt: null },
+    }));
+  }
+  if (path === "/api/daily-plan/reschedule") {
+    const parsed = dailyPlanRescheduleSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    const action = parsed.data;
+    if (action.endMinute <= action.startMinute) return json({ error: "Waktu selesai harus setelah waktu mulai" }, 400);
+    const source = await prisma.timeBlock.findFirst({ where: { id: action.blockId, plan: { userId: auth.userId } }, include: { plan: true } });
+    if (!source) return json({ error: "Forbidden" }, 403);
+    if (source.status === "COMPLETED") return json({ error: "Batalkan status selesai sebelum reschedule" }, 409);
+    if (source.status === "RESCHEDULED") return json({ error: "Jadwal ini sudah dipindahkan" }, 409);
+    const targetDate = new Date(`${action.targetDate}T00:00:00Z`);
+    try {
+      const result = await prisma.$transaction(async tx => {
+        const targetPlan = await tx.dailyPlan.upsert({
+          where: { userId_date: { userId: auth.userId, date: targetDate } },
+          update: {},
+          create: { userId: auth.userId, date: targetDate },
+          include: { blocks: true },
+        });
+        const activeBlocks = targetPlan.blocks.filter(b => b.status !== TimeBlockStatus.RESCHEDULED && b.id !== source.id);
+        if (activeBlocks.length >= MAX_BLOCKS_PER_DAY) throw new Error("TARGET_LIMIT");
+        if (findOverlappingBlock(activeBlocks, action)) throw new Error("TARGET_OVERLAP");
+        const created = await tx.timeBlock.create({ data: {
+          planId: targetPlan.id,
+          label: source.label,
+          startMinute: action.startMinute,
+          endMinute: action.endMinute,
+        } });
+        await tx.timeBlock.update({ where: { id: source.id }, data: {
+          status: TimeBlockStatus.RESCHEDULED,
+          rescheduledAt: new Date(),
+          rescheduledToBlockId: created.id,
+          rescheduleReason: action.reason,
+        } });
+        return { sourceBlockId: source.id, targetBlock: created, targetDate: action.targetDate };
+      });
+      return json(result);
+    } catch (error) {
+      if (error instanceof Error && error.message === "TARGET_LIMIT") return json({ error: "Maksimal blok waktu pada tanggal tujuan" }, 409);
+      if (error instanceof Error && error.message === "TARGET_OVERLAP") return json({ error: "Jadwal bertabrakan pada tanggal tujuan" }, 409);
+      throw error;
+    }
   }
   if (path === "/api/daily-plan/lock") {
     const parsed = dailyPlanLockSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);

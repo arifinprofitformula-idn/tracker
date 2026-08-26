@@ -2929,6 +2929,116 @@ body {
   align-content: start;
 }
 
+.execution-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.done-action,
+.reschedule-action {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.done-action {
+  border: 1px solid #9edac4;
+  background: #effbf5;
+  color: #176844;
+}
+
+.done-action.completed {
+  border-color: #4fb386;
+  background: #daf4e6;
+}
+
+.reschedule-action {
+  border: 1px solid #c9c4f3;
+  background: #f5f3ff;
+  color: #554b9b;
+}
+
+.block-status {
+  display: inline-flex;
+  width: fit-content;
+  padding: 6px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.block-status.missed { background: #fff3e5; color: #a45313; }
+.block-status.rescheduled { background: #f0eff5; color: #655f72; }
+.status-completed { border-color: #c8ead9; background: #f7fcf9; }
+.status-completed .timeline-block-label,
+.status-completed > b { color: #668074; text-decoration: line-through; }
+.status-rescheduled { opacity: .66; }
+
+.reschedule-modal {
+  place-items: end center;
+  padding: 16px;
+  background: rgba(12, 28, 44, .5);
+}
+
+.reschedule-sheet {
+  width: min(100%, 560px);
+  max-height: calc(100svh - 32px);
+  overflow-y: auto;
+  display: grid;
+  gap: 15px;
+  padding: 20px;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 28px 80px rgba(12, 28, 44, .24);
+}
+
+.reschedule-heading,
+.reschedule-times,
+.reschedule-quick-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.reschedule-heading { align-items: flex-start; justify-content: space-between; }
+.reschedule-heading h2 { margin: 4px 0; }
+.reschedule-times > * { flex: 1; }
+.reschedule-quick-actions { flex-wrap: wrap; }
+
+.undo-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 86px;
+  z-index: 80;
+  transform: translateX(-50%);
+  width: min(calc(100% - 32px), 420px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 15px;
+  border-radius: 14px;
+  background: #132033;
+  color: #fff;
+  box-shadow: 0 18px 50px rgba(10, 25, 40, .28);
+}
+
+.undo-toast button {
+  border: 0;
+  background: transparent;
+  color: #8fe1d3;
+  font-weight: 800;
+}
+
 .history-list {
   display: grid;
   gap: 8px;
@@ -3005,6 +3115,14 @@ body {
   .block-edit-form {
     grid-template-columns: 1fr 1fr;
   }
+
+  .timeline-block-body { align-items: stretch; }
+  .timeline-block-label { width: 100%; }
+  .execution-actions { width: 100%; }
+  .done-action, .reschedule-action { flex: 1; }
+  .reschedule-modal { padding: 0; }
+  .reschedule-sheet { max-height: 92svh; border-radius: 24px 24px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom)); }
+  .reschedule-times { flex-direction: column; }
 }
 
 /* Mobile optimization layer */
@@ -3012,6 +3130,53 @@ html,
 body {
   max-width: 100%;
   overflow-x: hidden;
+}
+
+/* Arva Tracker brand lock */
+.header-brand-logo,
+.auth-brand-logo,
+.standalone-brand img {
+  display: block;
+  flex: none;
+  border-radius: 16px;
+  background: #071a2d;
+  object-fit: contain;
+}
+
+.header-brand-logo { width: 46px; height: 46px; }
+.header-brand-copy { display: grid; gap: 1px; line-height: 1.1; }
+.header-brand-copy b { color: #071a2d; font-size: 17px; letter-spacing: -.02em; }
+.header-brand-copy small { color: #8b6b32; font-size: 9px; letter-spacing: .02em; text-transform: none; }
+
+.auth-brand-lockup,
+.standalone-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.auth-brand-logo { width: 88px; height: 88px; box-shadow: 0 15px 34px rgba(7, 26, 45, .22); }
+.auth-brand-name,
+.standalone-brand b { color: #071a2d; font-size: 24px; font-weight: 850; line-height: 1; letter-spacing: -.04em; }
+.auth-brand-tagline,
+.standalone-brand small { display: block; margin-top: 7px; color: #8b6b32; font-size: 11px; font-weight: 650; }
+.standalone-brand { margin-bottom: 12px; text-align: left; }
+.standalone-brand img { width: 76px; height: 76px; }
+.compact-auth-card { gap: 22px; }
+.branded-auth-page { background: radial-gradient(circle at 50% 0%, rgba(197,164,109,.16), transparent 34%), linear-gradient(145deg,#f8f3e9,#eef4f7); }
+.auth-link-button { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+.auth-reset-link { font-weight: 750; }
+.auth-guard { gap: 16px; }
+.auth-guard p { margin: 0; padding: 13px 15px; border: 1px solid rgba(197,164,109,.3); border-radius: 13px; background: #fffaf0; color: #5c4a2f; line-height: 1.55; }
+
+@media (max-width: 520px) {
+  .header-brand-logo { width: 40px; height: 40px; }
+  .header-brand-copy small { display: none; }
+  .auth-brand-lockup { flex-direction: column; }
+  .auth-brand-logo { width: 80px; height: 80px; }
 }
 
 body {

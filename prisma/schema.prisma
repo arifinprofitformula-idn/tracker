@@ -18,14 +18,14 @@ enum UserStatus {
 }
 
 model User {
-  id           String     @id @default(cuid())
-  email        String     @unique
+  id           String      @id @default(cuid())
+  email        String      @unique
   passwordHash String
   name         String
-  role         UserRole   @default(USER)
-  status       UserStatus @default(ACTIVE)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  role         UserRole    @default(USER)
+  status       UserStatus  @default(ACTIVE)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
   sessions     Session[]
   modules      Module[]
   dailyPlans   DailyPlan[]
@@ -119,14 +119,27 @@ model DailyPlan {
   @@index([userId, date])
 }
 
+enum TimeBlockStatus {
+  SCHEDULED
+  COMPLETED
+  RESCHEDULED
+}
+
 model TimeBlock {
-  id          String    @id @default(cuid())
-  planId      String
-  label       String
-  startMinute Int
-  endMinute   Int
-  createdAt   DateTime  @default(now())
-  plan        DailyPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  id                   String          @id @default(cuid())
+  planId               String
+  label                String
+  startMinute          Int
+  endMinute            Int
+  status               TimeBlockStatus @default(SCHEDULED)
+  completedAt          DateTime?
+  rescheduledAt        DateTime?
+  rescheduledToBlockId String?
+  rescheduleReason     String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  plan                 DailyPlan       @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@index([planId])
+  @@index([status])
 }

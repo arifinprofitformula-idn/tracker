@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blocksOverlap, findOverlappingBlock, formatMinutes, parseTimeToMinutes, shiftISODate, sortByStart } from "./dailyPlan";
+import { blocksOverlap, effectiveBlockStatus, findOverlappingBlock, formatMinutes, parseTimeToMinutes, shiftISODate, sortByStart } from "./dailyPlan";
 
 describe("blocksOverlap", () => {
   it("detects overlapping ranges", () => {
@@ -52,6 +52,21 @@ describe("shiftISODate", () => {
     expect(shiftISODate("2026-08-26", -1)).toBe("2026-08-25");
     expect(shiftISODate("2026-08-31", 1)).toBe("2026-09-01");
     expect(shiftISODate("2026-01-01", -1)).toBe("2025-12-31");
+  });
+});
+
+describe("effectiveBlockStatus", () => {
+  const now = new Date(2026, 7, 26, 10, 30);
+  it("marks an overdue scheduled block as missed", () => {
+    expect(effectiveBlockStatus("SCHEDULED", "2026-08-26", 600, now)).toBe("MISSED");
+  });
+  it("keeps future and active scheduled blocks scheduled", () => {
+    expect(effectiveBlockStatus("SCHEDULED", "2026-08-26", 660, now)).toBe("SCHEDULED");
+    expect(effectiveBlockStatus("SCHEDULED", "2026-08-27", 60, now)).toBe("SCHEDULED");
+  });
+  it("never overrides terminal statuses", () => {
+    expect(effectiveBlockStatus("COMPLETED", "2026-08-25", 60, now)).toBe("COMPLETED");
+    expect(effectiveBlockStatus("RESCHEDULED", "2026-08-25", 60, now)).toBe("RESCHEDULED");
   });
 });
 
