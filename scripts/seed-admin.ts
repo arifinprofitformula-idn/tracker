@@ -1,4 +1,5 @@
 import { prisma, hashPassword } from "../src/lib/prisma";
+import { buildDefaultPhases } from "../src/lib/tracker";
 
 async function main() {
   const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
@@ -18,15 +19,11 @@ async function main() {
   const count = await prisma.module.count({ where: { ownerId: user.id } });
   if (!count) await prisma.module.create({ data: {
     ownerId: user.id,
-    title: "Sholat & Tahajjud",
+    title: "Judul Tracker Anda",
     subtitle: "40 Hari — Fondasi Ketenangan",
     days: 40,
-    activities: ["Sholat Subuh","Sholat Dzuhur","Sholat Ashar","Sholat Maghrib","Sholat Isya","Tahajjud","Dzikir"],
-    phases: { create: [
-      { label: "Fase 1 — Fondasi", startDay: 1, endDay: 10, description: "Perbaiki kualitas malam. 5 waktu tepat waktu.", position: 0 },
-      { label: "Fase 2 — Ekspansi", startDay: 11, endDay: 25, description: "Masjid bertahap + tahajjud 3x/minggu.", position: 1 },
-      { label: "Fase 3 — Konsolidasi", startDay: 26, endDay: 40, description: "Masjid penuh, tahajjud jadi default.", position: 2 }
-    ] }
+    activities: [],
+    phases: { create: buildDefaultPhases(40) }
   }});
   console.log(`admin_ready=${user.id}`);
 }

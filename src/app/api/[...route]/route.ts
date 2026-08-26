@@ -1,10 +1,20 @@
 import type { NextRequest } from "next/server";
 import { UserRole, UserStatus } from "@prisma/client";
 import { createSession, hashPassword, prisma, revokeSession, SESSION_DAYS, validateSession, verifyPassword } from "@/lib/prisma";
-import { adminUserSchema, checkSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, registerSchema, settingSchema, startSchema } from "@/lib/validation";
+import { activityActionSchema, adminUserSchema, checkSchema, dailyPlanBlockActionSchema, dailyPlanLockSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, profileSettingsSchema, registerSchema, settingSchema, startSchema } from "@/lib/validation";
+import { findOverlappingBlock, MAX_BLOCKS_PER_DAY } from "@/lib/dailyPlan";
+import { buildDefaultPhases } from "@/lib/tracker";
 
 const COOKIE = process.env.SESSION_COOKIE_NAME || "tracker_session";
-const attempts = new Map<string, { count: number; reset: number }>();
+const globalForAttempts = globalThis as unknown as { attempts?: Map<string, { count: number; reset: number }>; attemptsCleanup?: ReturnType<typeof setInterval> };
+const attempts = globalForAttempts.attempts ?? new Map<string, { count: number; reset: number }>();
+globalForAttempts.attempts = attempts;
+if (!globalForAttempts.attemptsCleanup) {
+  globalForAttempts.attemptsCleanup = setInterval(() => {
+    const now = Date.now();
+    for (const [key, value] of attempts) if (value.reset < now) attempts.delete(key);
+  }, 15 * 60_000).unref();
+}
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 const route = (req: NextRequest) => req.nextUrl.pathname;
 
@@ -27,13 +37,9 @@ async function ownedModule(moduleId: string, userId: string) {
   return prisma.module.findFirst({ where: { id: moduleId, ownerId: userId } });
 }
 const defaultModule = {
-  title: "Sholat & Tahajjud", subtitle: "40 Hari — Fondasi Ketenangan", days: 40,
-  activities: ["Sholat Subuh", "Sholat Dzuhur", "Sholat Ashar", "Sholat Maghrib", "Sholat Isya", "Tahajjud", "Dzikir"],
-  phases: { create: [
-    { label: "Fase 1 — Fondasi", startDay: 1, endDay: 10, description: "Perbaiki kualitas malam. 5 waktu tepat waktu.", position: 0 },
-    { label: "Fase 2 — Ekspansi", startDay: 11, endDay: 25, description: "Masjid bertahap + tahajjud 3x/minggu.", position: 1 },
-    { label: "Fase 3 — Konsolidasi", startDay: 26, endDay: 40, description: "Masjid penuh, tahajjud jadi default.", position: 2 },
-  ] },
+  title: "Judul Tracker Anda", subtitle: "40 Hari — Fondasi Ketenangan", days: 40,
+  activities: [],
+  phases: { create: buildDefaultPhases(40) },
 };
 
 export async function GET(req: NextRequest) {
@@ -48,6 +54,22 @@ export async function GET(req: NextRequest) {
   if (path === "/api/modules" || path === "/api/trackers") {
     const modules = await prisma.module.findMany({ where: { ownerId: auth.userId }, include: { checks: true, notes: true, phases: { orderBy: { position: "asc" } } }, orderBy: { createdAt: "asc" } });
     return json(modules);
+  }
+  if (path === "/api/daily-plan") {
+    const dateParam = req.nextUrl.searchParams.get("date");
+    if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) return json({ error: "Invalid date" }, 400);
+    const plan = await prisma.dailyPlan.findUnique({
+      where: { userId_date: { userId: auth.userId, date: new Date(`${dateParam}T00:00:00Z`) } },
+      include: { blocks: { orderBy: { startMinute: "asc" } } },
+    });
+    return json({
+      plan: plan ? { id: plan.id, date: dateParam, locked: plan.locked } : null,
+      blocks: (plan?.blocks ?? []).map(b => ({ id: b.id, label: b.label, startMinute: b.startMinute, endMinute: b.endMinute })),
+    });
+  }
+  if (path === "/api/daily-plan/history") {
+    const plans = await prisma.dailyPlan.findMany({ where: { userId: auth.userId }, orderBy: { date: "desc" }, take: 60, include: { _count: { select: { blocks: true } } } });
+    return json(plans.map(p => ({ date: p.date.toISOString().slice(0, 10), locked: p.locked, blockCount: p._count.blocks })));
   }
   if (path === "/api/admin/users") {
     if (auth.role !== "ADMIN") return json({ error: "Forbidden" }, 403);
@@ -91,9 +113,91 @@ export async function POST(req: NextRequest) {
     const res = json({ success: true }); res.headers.append("Set-Cookie", `${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`); return res;
   }
   const auth = await actor(req); if (!auth) return json({ error: "Unauthorized" }, 401);
+  if (path === "/api/profile") {
+    const parsed = profileSettingsSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    const user = await prisma.user.findUnique({ where: { id: auth.userId } }); if (!user) return json({ error: "Unauthorized" }, 401);
+    const data: { name: string; passwordHash?: string } = { name: parsed.data.name };
+    if (parsed.data.newPassword) {
+      if (!parsed.data.currentPassword || !await verifyPassword(parsed.data.currentPassword, user.passwordHash)) return json({ error: "Current password is incorrect" }, 403);
+      data.passwordHash = await hashPassword(parsed.data.newPassword);
+    }
+    const updated = await prisma.user.update({ where: { id: auth.userId }, data, select: { id: true, name: true, email: true, role: true, status: true } });
+    return json({ user: updated, success: true });
+  }
   if (path === "/api/modules" || path === "/api/trackers") {
     const parsed = moduleCreateSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
-    return json(await prisma.module.create({ data: { ownerId: auth.userId, ...parsed.data } }), 201);
+    const { title, subtitle, days, phases } = parsed.data;
+    const phaseTemplate = buildDefaultPhases(days).map((phase, idx) => {
+      const custom = phases?.[idx];
+      return custom ? { ...phase, label: custom.label, description: custom.description, targetPercent: custom.targetPercent } : phase;
+    });
+    return json(await prisma.module.create({ data: { ownerId: auth.userId, title, subtitle, days, activities: [], phases: { create: phaseTemplate } } }), 201);
+  }
+  if (path === "/api/modules/activities") {
+    const parsed = activityActionSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    const action = parsed.data;
+    const owned = await ownedModule(action.moduleId, auth.userId); if (!owned) return json({ error: "Forbidden" }, 403);
+    if (owned.locksActivities && owned.startDate) return json({ error: "Aktivitas tracker ini sudah terkunci karena project sudah dimulai" }, 403);
+    if (action.action === "add") {
+      if (owned.activities.filter(Boolean).length >= 10) return json({ error: "Maksimal 10 aktivitas per tracker" }, 409);
+      return json(await prisma.module.update({ where: { id: owned.id }, data: { activities: [...owned.activities, action.name] } }));
+    }
+    if (action.activityIdx >= owned.activities.length) return json({ error: "Out of range" }, 400);
+    if (action.action === "update") {
+      const activities = [...owned.activities]; activities[action.activityIdx] = action.name;
+      return json(await prisma.module.update({ where: { id: owned.id }, data: { activities } }));
+    }
+    const activities = owned.activities.filter((_, idx) => idx !== action.activityIdx);
+    return json(await prisma.$transaction(async tx => {
+      await tx.check.deleteMany({ where: { moduleId: owned.id, activityIdx: action.activityIdx } });
+      await tx.check.updateMany({ where: { moduleId: owned.id, activityIdx: { gt: action.activityIdx } }, data: { activityIdx: { decrement: 1 } } });
+      return tx.module.update({ where: { id: owned.id }, data: { activities } });
+    }));
+  }
+  if (path === "/api/daily-plan/blocks") {
+    const parsed = dailyPlanBlockActionSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    const action = parsed.data;
+
+    if (action.action === "delete") {
+      const block = await prisma.timeBlock.findFirst({ where: { id: action.blockId, plan: { userId: auth.userId } }, include: { plan: true } });
+      if (!block) return json({ error: "Forbidden" }, 403);
+      if (block.plan.locked) return json({ error: "Rencana harian ini sudah dikunci" }, 403);
+      await prisma.timeBlock.delete({ where: { id: block.id } });
+      return json({ success: true });
+    }
+
+    if (action.endMinute <= action.startMinute) return json({ error: "Waktu selesai harus setelah waktu mulai" }, 400);
+
+    if (action.action === "update") {
+      const block = await prisma.timeBlock.findFirst({ where: { id: action.blockId, plan: { userId: auth.userId } }, include: { plan: { include: { blocks: true } } } });
+      if (!block) return json({ error: "Forbidden" }, 403);
+      if (block.plan.locked) return json({ error: "Rencana harian ini sudah dikunci" }, 403);
+      if (findOverlappingBlock(block.plan.blocks, action, block.id)) return json({ error: "Blok waktu bertabrakan dengan blok lain" }, 409);
+      return json(await prisma.timeBlock.update({ where: { id: block.id }, data: { label: action.label, startMinute: action.startMinute, endMinute: action.endMinute } }));
+    }
+
+    const dateOnly = new Date(`${action.date}T00:00:00Z`);
+    const plan = await prisma.dailyPlan.upsert({
+      where: { userId_date: { userId: auth.userId, date: dateOnly } },
+      update: {},
+      create: { userId: auth.userId, date: dateOnly },
+      include: { blocks: true },
+    });
+    if (plan.locked) return json({ error: "Rencana harian ini sudah dikunci" }, 403);
+    if (plan.blocks.length >= MAX_BLOCKS_PER_DAY) return json({ error: `Maksimal ${MAX_BLOCKS_PER_DAY} blok waktu per hari` }, 409);
+    if (findOverlappingBlock(plan.blocks, action)) return json({ error: "Blok waktu bertabrakan dengan blok lain" }, 409);
+
+    return json(await prisma.timeBlock.create({ data: { planId: plan.id, label: action.label, startMinute: action.startMinute, endMinute: action.endMinute } }), 201);
+  }
+  if (path === "/api/daily-plan/lock") {
+    const parsed = dailyPlanLockSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    const dateOnly = new Date(`${parsed.data.date}T00:00:00Z`);
+    const plan = await prisma.dailyPlan.upsert({
+      where: { userId_date: { userId: auth.userId, date: dateOnly } },
+      update: { locked: parsed.data.locked },
+      create: { userId: auth.userId, date: dateOnly, locked: parsed.data.locked },
+    });
+    return json({ date: parsed.data.date, locked: plan.locked });
   }
   if (path === "/api/modules/checks") {
     const parsed = checkSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
@@ -135,8 +239,12 @@ export async function PATCH(req: NextRequest) {
   if (!sameOrigin(req)) return json({ error: "Invalid origin" }, 403);
   const auth = await actor(req); if (!auth) return json({ error: "Unauthorized" }, 401);
   const parsed = moduleUpdateSchema.safeParse(await req.json()); if (!parsed.success) return json({ error: "Validation failed" }, 400);
-  if (!await ownedModule(parsed.data.moduleId, auth.userId)) return json({ error: "Forbidden" }, 403);
-  const { moduleId, ...data } = parsed.data; return json(await prisma.module.update({ where: { id: moduleId }, data }));
+  const owned = await ownedModule(parsed.data.moduleId, auth.userId); if (!owned) return json({ error: "Forbidden" }, 403);
+  const { moduleId, ...data } = parsed.data;
+  if (data.activities) {
+    if (owned.locksActivities && owned.startDate) return json({ error: "Aktivitas tracker ini sudah terkunci karena project sudah dimulai" }, 403);
+  }
+  return json(await prisma.module.update({ where: { id: moduleId }, data }));
 }
 
 export async function DELETE(req: NextRequest) {

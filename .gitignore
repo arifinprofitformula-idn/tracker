@@ -13,3 +13,4 @@ tsconfig.tsbuildinfo
 tests/*.png
 .DS_Store
 public/sw.js.tmp
+graphify-out/
