@@ -74,8 +74,9 @@ export default function StartDatePicker({ value, onChange }: StartDatePickerProp
   }, [viewDate]);
 
   async function selectDate(date: Date) {
-    await onChange(toIso(date));
+    setViewDate(date);
     setOpen(false);
+    await onChange(toIso(date));
   }
 
   function moveMonth(step: number) {

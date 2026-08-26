@@ -5,6 +5,7 @@ import AppHeader from "@/components/AppHeader";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import ProfileSettings from "@/components/ProfileSettings";
 import StartDatePicker from "@/components/StartDatePicker";
+import { readJson } from "@/lib/http";
 import {
   AlertTriangle,
   BookOpenText,
@@ -147,7 +148,9 @@ export default function Dashboard() {
   async function post(path: string, body: unknown) {
     const r = await fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
     if (!r.ok) {
-      setError((await r.json()).error || "Gagal");
+      const data = await readJson<{ error?: string }>(r);
+      setNotice("");
+      setError(data.error || "Gagal");
       return false;
     }
     setError("");
@@ -157,7 +160,7 @@ export default function Dashboard() {
 
   async function patchModule(body: unknown, success: string) {
     const r = await fetch("/api/modules", { method: "PATCH", headers, body: JSON.stringify(body) });
-    const data = await r.json();
+    const data = await readJson<{ error?: string }>(r);
     if (!r.ok) {
       setNotice("");
       setError(data.error || "Gagal menyimpan tracker");
@@ -171,7 +174,7 @@ export default function Dashboard() {
 
   async function activityAction(body: unknown, success: string) {
     const r = await fetch("/api/modules/activities", { method: "POST", headers, body: JSON.stringify(body) });
-    const data = await r.json();
+    const data = await readJson<{ error?: string }>(r);
     if (!r.ok) {
       setNotice("");
       setError(data.error || "Gagal menyimpan aktivitas");
@@ -207,7 +210,7 @@ export default function Dashboard() {
       headers,
       body: JSON.stringify({ title: f.get("title"), subtitle: `${days} Hari — ${tagline}`, days, activities: [], phases }),
     });
-    const data = await r.json();
+    const data = await readJson<{ error?: string; id?: string }>(r);
     if (!r.ok) {
       setNotice("");
       setError(data.error || "Gagal membuat tracker");
@@ -218,7 +221,7 @@ export default function Dashboard() {
     setModal(false);
     e.currentTarget.reset();
     await load();
-    setActive(data.id);
+    if (data.id) setActive(data.id);
   }
 
   async function updateTrackerTitle(e: React.FormEvent<HTMLFormElement>) {
@@ -265,7 +268,9 @@ export default function Dashboard() {
 
   async function updateStartDate(startDate: string | null) {
     if (!mod) return;
-    await post("/api/modules/start-date", { moduleId: mod.id, startDate });
+    if (await post("/api/modules/start-date", { moduleId: mod.id, startDate })) {
+      setNotice(startDate ? "Tanggal mulai berhasil diperbarui." : "Tanggal mulai dikosongkan.");
+    }
   }
 
   if (!user || !mod) {

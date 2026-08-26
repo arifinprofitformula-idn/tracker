@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, BarChart3 } from "lucide-react";
 import { FormEvent, useState } from "react";
+import { readJson } from "@/lib/http";
 
 export default function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
@@ -17,14 +18,20 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
     setError("");
     const fd = new FormData(e.currentTarget);
     const body = Object.fromEntries(fd);
-    const r = await fetch(`/api/auth/${mode}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await r.json();
-    if (!r.ok) {
-      setError(data.error || "Terjadi kesalahan");
+    try {
+      const r = await fetch(`/api/auth/${mode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await readJson<{ error?: string }>(r);
+      if (!r.ok) {
+        setError(data.error || "Terjadi kesalahan");
+        setBusy(false);
+        return;
+      }
+    } catch {
+      setError("Tidak bisa menghubungi server. Coba lagi.");
       setBusy(false);
       return;
     }

@@ -20,7 +20,7 @@ const route = (req: NextRequest) => req.nextUrl.pathname;
 
 function sameOrigin(req: NextRequest) {
   const origin = req.headers.get("origin");
-  const expected = process.env.APP_URL;
+  const expected = process.env.APP_URL || req.nextUrl.origin;
   return !!expected && origin === expected;
 }
 function limited(req: NextRequest) {
