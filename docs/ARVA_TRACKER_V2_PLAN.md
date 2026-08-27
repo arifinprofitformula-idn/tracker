@@ -1,6 +1,6 @@
 # Arva Tracker V2 — Plan
 
-Status: **Fase 0 (Audit) selesai. Fase A (Workspace Foundation) belum dimulai.**
+Status: **Fase B (Program/Tracking V2) selesai. Fase C (Billing + Personal Pro foundation) berikutnya.**
 Terakhir diperbarui: 2026-08-27
 
 Dokumen ini adalah satu-satunya sumber kebenaran soal status & arah V2. Kalau ada percakapan lama yang menyebut rencana berbeda, dokumen ini yang menang — update di sini begitu ada keputusan baru, jangan biarkan basi.
@@ -35,7 +35,7 @@ Keputusan hasil audit ada di `docs/DECISIONS.md`. Ringkas: **stack self-hosted d
 |---|---|---|
 | `programs` | `Module` | Rename opsional, boleh ditunda — tidak blocking |
 | `program_steps` | `Phase` | Sudah setara |
-| `program_enrollments` | (implisit lewat `ownerId`) | Akan jadi eksplisit setelah `workspace_id` masuk |
+| `program_enrollments` | `ProgramEnrollment` | Sudah eksplisit untuk owner module; assignment coach/client diperluas di Fase D |
 | `activity_logs` | `Check` | Sudah setara |
 | `daily_reflections` | `Note` | Sudah setara |
 | `workspaces` / `workspace_members` | **Belum ada** | **Ini fokus Fase A** |
@@ -52,8 +52,8 @@ Blueprint menulis roadmap generik minggu-per-minggu. Di sini dipetakan ulang jad
 | Fase | Fokus | Definition of Done | Status |
 |---|---|---|---|
 | **0** | Audit + dokumentasi landasan | AGENTS.md, DECISIONS.md, PLAN.md, PROGRESS.md ada dan disetujui | ✅ Selesai |
-| **A** | Workspace foundation | `Workspace`+`WorkspaceMember` ada, backfill personal workspace utk semua user existing, `route.ts` baca lewat membership (bukan `ownerId` langsung), test cross-tenant lulus | ⬜ Belum mulai |
-| **B** | Program/Tracking V2 | `Module` (atau rename `programs`) resmi terhubung ke `workspace_id`, `program_enrollments` eksplisit | ⬜ |
+| **A** | Workspace foundation | `Workspace`+`WorkspaceMember` ada, backfill personal workspace utk semua user existing, `route.ts` baca lewat membership (bukan `ownerId` langsung), test cross-tenant lulus | ✅ Selesai |
+| **B** | Program/Tracking V2 | `Module` (atau rename `programs`) resmi terhubung ke `workspace_id`, `program_enrollments` eksplisit | ✅ Selesai |
 | **C** | Billing + Personal Pro | `plans`, `subscriptions`, `billing_transactions`, `webhook_events`, PaymentProvider adapter (Midtrans/Xendit), entitlement helper server-side | ⬜ |
 | **D** | Coach Mode | `coach_client_links`, `coach_interventions`, dashboard Needs Attention, risk score deterministik | ⬜ |
 | **E** | AI Coach | AI gateway, weekly insight, `ai_insights`/`ai_usage`, privacy filter, budget guardrail | ⬜ |
@@ -78,6 +78,41 @@ Detail checklist per fase ada di `docs/PROGRESS.md` — file ini cuma nyimpen de
 | Scope creep dari blueprint (marketplace, white-label, gamification) | Waktu habis di fitur yang seharusnya P3 | Scope P2/P3 di blueprint tetap ditunda — tidak masuk fase manapun di atas sampai Fase D-F terbukti (retention + willingness-to-pay) |
 | DailyPlan/TimeBlock tidak termodelkan di blueprint | Bisa "hilang" dari rencana kalau tim/agent baru cuma baca blueprint | Sudah dicatat eksplisit di tabel pemetaan domain (baris terakhir) — jangan dihapus |
 
-## 7. Yang Sengaja Ditunda (ikut rekomendasi blueprint)
+## 7. Catatan Implementasi Fase A
+
+Fase A selesai pada 2026-08-27:
+
+- Schema menambahkan `Workspace`, `WorkspaceMember`, `WorkspaceType`, dan `WorkspaceRole`.
+- `Module.workspaceId` ditambahkan dan dibackfill dari personal workspace pemilik lama tanpa menghapus `ownerId`.
+- Registrasi user dan seed admin sekarang otomatis membuat personal workspace + owner membership.
+- Query module/check/note/start-date sudah melewati membership workspace melalui helper `src/lib/workspace.ts`.
+- `getEntitlements(workspaceId)` tersedia sebagai helper server-side awal dan untuk sementara mengembalikan entitlement FREE sampai Fase C.
+- Cross-tenant integration test sudah membuktikan user unrelated tidak bisa read/write module workspace lain, sedangkan viewer hanya bisa read.
+
+Catatan scope: `DailyPlan/TimeBlock` tetap personal lewat `userId` pada Fase A. Workspace attachment untuk DailyPlan dikerjakan saat Fase B/C bila diperlukan untuk coach/community visibility, supaya Fase A tetap kecil dan aman.
+
+## 8. Catatan Implementasi Fase B
+
+Fase B selesai pada 2026-08-27:
+
+- `ProgramEnrollment` ditambahkan sebagai domain V2 eksplisit tanpa rename/drop `Module`.
+- Setiap `Module` existing dibackfill menjadi active owner enrollment.
+- Registrasi, seed admin, dan create tracker sekarang membuat owner enrollment dalam transaction yang sama dengan module.
+- Script `db:backfill:program-enrollments` tersedia dan idempotent.
+- Test integration membuktikan owner module memiliki active enrollment dan unrelated user tidak dianggap enrolled.
+- `DailyPlan.workspaceId` ditambahkan dan dibackfill dari personal workspace pemiliknya.
+- API Daily Plan tetap personal-private (`userId` pemilik wajib cocok), tetapi sekarang query/read/write juga melewati workspace-aware helper.
+- Test integration membuktikan member workspace lain tidak otomatis bisa membaca daily plan personal user tersebut.
+- `ProgressSnapshot` ditambahkan sebagai numeric aggregate per workspace/module/user/date.
+- Script `db:backfill:progress-snapshots` tersedia dan idempotent.
+- Snapshot sengaja tidak menyimpan note/reflection/private text.
+- Test unit/integration membuktikan kalkulasi snapshot dan upsert idempotent.
+
+Catatan scope:
+
+- `Module/Phase/Check/Note` tetap nama internal untuk sekarang; service-layer alias `Program` bisa ditambahkan bila UI/API coach membutuhkannya.
+- UI analytics 7/30/90 belum dibuat; tabel snapshot sekarang menjadi fondasinya untuk Fase C/D/F.
+
+## 9. Yang Sengaja Ditunda (ikut rekomendasi blueprint)
 
 Marketplace payout, white-label custom domain, gamification economy kompleks, native iOS/Android, realtime chat, offline-first sync lanjutan, ML predictive churn — tidak dikerjakan sebelum Fase D-F terbukti retention & willingness-to-pay-nya.

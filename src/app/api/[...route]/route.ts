@@ -1,9 +1,11 @@
 import type { NextRequest } from "next/server";
 import { TimeBlockStatus, UserRole, UserStatus } from "@prisma/client";
 import { createSession, hashPassword, prisma, revokeSession, SESSION_DAYS, validateSession, verifyPassword } from "@/lib/prisma";
+import { ensureOwnerProgramEnrollment } from "@/lib/programEnrollment";
 import { activityActionSchema, adminUserSchema, checkSchema, dailyPlanBlockActionSchema, dailyPlanCompleteSchema, dailyPlanLockSchema, dailyPlanRescheduleSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, profileSettingsSchema, registerSchema, settingSchema, startSchema } from "@/lib/validation";
 import { findOverlappingBlock, MAX_BLOCKS_PER_DAY } from "@/lib/dailyPlan";
 import { buildDefaultPhases } from "@/lib/tracker";
+import { accessibleDailyPlanWhere, accessibleModuleWhere, ensurePersonalWorkspace, findAccessibleModule, getDefaultWorkspaceIdForUser, workspaceWriteRoles } from "@/lib/workspace";
 
 const COOKIE = process.env.SESSION_COOKIE_NAME || "tracker_session";
 const globalForAttempts = globalThis as unknown as { attempts?: Map<string, { count: number; reset: number }>; attemptsCleanup?: ReturnType<typeof setInterval> };
@@ -34,7 +36,7 @@ async function actor(req: NextRequest) {
   return token ? validateSession(token) : null;
 }
 async function ownedModule(moduleId: string, userId: string) {
-  return prisma.module.findFirst({ where: { id: moduleId, ownerId: userId } });
+  return findAccessibleModule(moduleId, userId, workspaceWriteRoles);
 }
 const defaultModule = {
   title: "Judul Tracker Anda", subtitle: "40 Hari — Fondasi Ketenangan", days: 40,
@@ -52,14 +54,14 @@ export async function GET(req: NextRequest) {
     return json({ user });
   }
   if (path === "/api/modules" || path === "/api/trackers") {
-    const modules = await prisma.module.findMany({ where: { ownerId: auth.userId }, include: { checks: true, notes: true, phases: { orderBy: { position: "asc" } } }, orderBy: { createdAt: "asc" } });
+    const modules = await prisma.module.findMany({ where: accessibleModuleWhere(auth.userId), include: { checks: true, notes: true, phases: { orderBy: { position: "asc" } } }, orderBy: { createdAt: "asc" } });
     return json(modules);
   }
   if (path === "/api/daily-plan") {
     const dateParam = req.nextUrl.searchParams.get("date");
     if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) return json({ error: "Invalid date" }, 400);
-    const plan = await prisma.dailyPlan.findUnique({
-      where: { userId_date: { userId: auth.userId, date: new Date(`${dateParam}T00:00:00Z`) } },
+    const plan = await prisma.dailyPlan.findFirst({
+      where: { ...accessibleDailyPlanWhere(auth.userId), date: new Date(`${dateParam}T00:00:00Z`) },
       include: { blocks: { orderBy: { startMinute: "asc" } } },
     });
     return json({
@@ -78,7 +80,7 @@ export async function GET(req: NextRequest) {
     });
   }
   if (path === "/api/daily-plan/history") {
-    const plans = await prisma.dailyPlan.findMany({ where: { userId: auth.userId }, orderBy: { date: "desc" }, take: 60, include: { blocks: true } });
+    const plans = await prisma.dailyPlan.findMany({ where: accessibleDailyPlanWhere(auth.userId), orderBy: { date: "desc" }, take: 60, include: { blocks: true } });
     return json(plans.map(p => {
       const completedCount = p.blocks.filter(b => b.status === "COMPLETED").length;
       const rescheduledCount = p.blocks.filter(b => b.status === "RESCHEDULED").length;
@@ -115,7 +117,10 @@ export async function POST(req: NextRequest) {
     const passwordHash = await hashPassword(parsed.data.password);
     const user = await prisma.$transaction(async tx => {
       const created = await tx.user.create({ data: { name: parsed.data.name, email: parsed.data.email, passwordHash } });
-      await tx.module.create({ data: { ownerId: created.id, ...defaultModule } }); return created;
+      const workspace = await ensurePersonalWorkspace(created, tx);
+      const createdModule = await tx.module.create({ data: { ownerId: created.id, workspaceId: workspace.id, ...defaultModule } });
+      await ensureOwnerProgramEnrollment(createdModule, tx);
+      return created;
     });
     const session = await createSession(user.id); const res = json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } }, 201);
     res.headers.append("Set-Cookie", `${COOKIE}=${session.token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${SESSION_DAYS * 86400}`); return res;
@@ -147,11 +152,17 @@ export async function POST(req: NextRequest) {
   if (path === "/api/modules" || path === "/api/trackers") {
     const parsed = moduleCreateSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
     const { title, subtitle, days, phases } = parsed.data;
+    const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
     const phaseTemplate = buildDefaultPhases(days).map((phase, idx) => {
       const custom = phases?.[idx];
       return custom ? { ...phase, label: custom.label, description: custom.description, targetPercent: custom.targetPercent } : phase;
     });
-    return json(await prisma.module.create({ data: { ownerId: auth.userId, title, subtitle, days, activities: [], phases: { create: phaseTemplate } } }), 201);
+    const createdModule = await prisma.$transaction(async tx => {
+      const created = await tx.module.create({ data: { ownerId: auth.userId, workspaceId, title, subtitle, days, activities: [], phases: { create: phaseTemplate } } });
+      await ensureOwnerProgramEnrollment(created, tx);
+      return created;
+    });
+    return json(createdModule, 201);
   }
   if (path === "/api/modules/activities") {
     const parsed = activityActionSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
@@ -177,9 +188,10 @@ export async function POST(req: NextRequest) {
   if (path === "/api/daily-plan/blocks") {
     const parsed = dailyPlanBlockActionSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
     const action = parsed.data;
+    const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
 
     if (action.action === "delete") {
-      const block = await prisma.timeBlock.findFirst({ where: { id: action.blockId, plan: { userId: auth.userId } }, include: { plan: true } });
+      const block = await prisma.timeBlock.findFirst({ where: { id: action.blockId, plan: accessibleDailyPlanWhere(auth.userId, workspaceWriteRoles) }, include: { plan: true } });
       if (!block) return json({ error: "Forbidden" }, 403);
       if (block.plan.locked) return json({ error: "Rencana harian ini sudah dikunci" }, 403);
       if (block.status === "RESCHEDULED") return json({ error: "Riwayat reschedule tidak dapat dihapus" }, 409);
@@ -190,7 +202,7 @@ export async function POST(req: NextRequest) {
     if (action.endMinute <= action.startMinute) return json({ error: "Waktu selesai harus setelah waktu mulai" }, 400);
 
     if (action.action === "update") {
-      const block = await prisma.timeBlock.findFirst({ where: { id: action.blockId, plan: { userId: auth.userId } }, include: { plan: { include: { blocks: true } } } });
+      const block = await prisma.timeBlock.findFirst({ where: { id: action.blockId, plan: accessibleDailyPlanWhere(auth.userId, workspaceWriteRoles) }, include: { plan: { include: { blocks: true } } } });
       if (!block) return json({ error: "Forbidden" }, 403);
       if (block.plan.locked) return json({ error: "Rencana harian ini sudah dikunci" }, 403);
       if (block.status !== "SCHEDULED") return json({ error: "Hanya jadwal aktif yang dapat diedit" }, 409);
@@ -202,7 +214,7 @@ export async function POST(req: NextRequest) {
     const plan = await prisma.dailyPlan.upsert({
       where: { userId_date: { userId: auth.userId, date: dateOnly } },
       update: {},
-      create: { userId: auth.userId, date: dateOnly },
+      create: { userId: auth.userId, workspaceId, date: dateOnly },
       include: { blocks: true },
     });
     if (plan.locked) return json({ error: "Rencana harian ini sudah dikunci" }, 403);
@@ -214,7 +226,7 @@ export async function POST(req: NextRequest) {
   }
   if (path === "/api/daily-plan/complete") {
     const parsed = dailyPlanCompleteSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
-    const block = await prisma.timeBlock.findFirst({ where: { id: parsed.data.blockId, plan: { userId: auth.userId } } });
+    const block = await prisma.timeBlock.findFirst({ where: { id: parsed.data.blockId, plan: accessibleDailyPlanWhere(auth.userId, workspaceWriteRoles) } });
     if (!block) return json({ error: "Forbidden" }, 403);
     if (block.status === "RESCHEDULED") return json({ error: "Jadwal yang sudah dipindahkan tidak dapat diselesaikan" }, 409);
     return json(await prisma.timeBlock.update({
@@ -228,7 +240,8 @@ export async function POST(req: NextRequest) {
     const parsed = dailyPlanRescheduleSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
     const action = parsed.data;
     if (action.endMinute <= action.startMinute) return json({ error: "Waktu selesai harus setelah waktu mulai" }, 400);
-    const source = await prisma.timeBlock.findFirst({ where: { id: action.blockId, plan: { userId: auth.userId } }, include: { plan: true } });
+    const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
+    const source = await prisma.timeBlock.findFirst({ where: { id: action.blockId, plan: accessibleDailyPlanWhere(auth.userId, workspaceWriteRoles) }, include: { plan: true } });
     if (!source) return json({ error: "Forbidden" }, 403);
     if (source.status === "COMPLETED") return json({ error: "Batalkan status selesai sebelum reschedule" }, 409);
     if (source.status === "RESCHEDULED") return json({ error: "Jadwal ini sudah dipindahkan" }, 409);
@@ -238,7 +251,7 @@ export async function POST(req: NextRequest) {
         const targetPlan = await tx.dailyPlan.upsert({
           where: { userId_date: { userId: auth.userId, date: targetDate } },
           update: {},
-          create: { userId: auth.userId, date: targetDate },
+          create: { userId: auth.userId, workspaceId, date: targetDate },
           include: { blocks: true },
         });
         const activeBlocks = targetPlan.blocks.filter(b => b.status !== TimeBlockStatus.RESCHEDULED && b.id !== source.id);
@@ -268,10 +281,11 @@ export async function POST(req: NextRequest) {
   if (path === "/api/daily-plan/lock") {
     const parsed = dailyPlanLockSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
     const dateOnly = new Date(`${parsed.data.date}T00:00:00Z`);
+    const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
     const plan = await prisma.dailyPlan.upsert({
       where: { userId_date: { userId: auth.userId, date: dateOnly } },
       update: { locked: parsed.data.locked },
-      create: { userId: auth.userId, date: dateOnly, locked: parsed.data.locked },
+      create: { userId: auth.userId, workspaceId, date: dateOnly, locked: parsed.data.locked },
     });
     return json({ date: parsed.data.date, locked: plan.locked });
   }

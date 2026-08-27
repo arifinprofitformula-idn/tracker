@@ -18,6 +18,10 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "prisma:generate": "prisma generate",
+    "db:backfill:workspaces": "tsx scripts/backfill-workspaces.ts",
+    "db:backfill:program-enrollments": "tsx scripts/backfill-program-enrollments.ts",
+    "db:backfill:progress-snapshots": "tsx scripts/backfill-progress-snapshots.ts",
+    "seed:plans": "tsx scripts/seed-plans.ts",
     "seed:admin": "tsx scripts/seed-admin.ts"
   },
   "dependencies": {
