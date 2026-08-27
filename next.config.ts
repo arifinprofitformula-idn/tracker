@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   compress: true,
+  ...(isDev ? { allowedDevOrigins: ["127.0.0.1", "localhost"] } : {}),
   async headers() {
     return [
       {

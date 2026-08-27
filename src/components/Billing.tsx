@@ -145,7 +145,12 @@ export default function Billing({ returnState }: { returnState?: "success" | "ca
       router.replace("/login");
       return;
     }
-    const sessionData = await session.json();
+    const sessionData = await readJson<{ user?: User; error?: string }>(session);
+    if (!session.ok || !sessionData.user) {
+      setError(sessionData.error || "Gagal memuat sesi");
+      setLoading(false);
+      return;
+    }
     setUser(sessionData.user);
     const res = await fetch("/api/billing");
     const data = await readJson<BillingSummary & { error?: string }>(res);
@@ -195,10 +200,22 @@ export default function Billing({ returnState }: { returnState?: "success" | "ca
     window.location.href = data.checkoutUrl;
   }
 
-  if (loading || !user) {
+  if (loading) {
     return (
       <main className="auth-shell">
         <div className="eyebrow">Memuat billing...</div>
+      </main>
+    );
+  }
+
+  if (!user) {
+    return (
+      <main className="auth-shell">
+        <p className="error">{error || "Gagal memuat billing"}</p>
+        <button className="secondary icon-button" type="button" onClick={load}>
+          <RefreshCw size={17} />
+          Coba lagi
+        </button>
       </main>
     );
   }
