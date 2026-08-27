@@ -4085,3 +4085,359 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Billing */
+.billing-content {
+  display: grid;
+  gap: 16px;
+}
+
+.billing-hero .muted {
+  max-width: 640px;
+}
+
+.billing-overview {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.current-plan-card,
+.usage-card,
+.pricing-card {
+  display: grid;
+  gap: 18px;
+}
+
+.current-plan-name {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid rgba(223, 232, 244, 0.92);
+  border-radius: 16px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(247, 251, 255, 0.9));
+}
+
+.current-plan-name strong {
+  color: #071a2d;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.current-plan-name span {
+  color: #1d5360;
+  font-weight: 800;
+}
+
+.billing-meta {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.billing-meta div,
+.usage-list div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.billing-meta dt,
+.usage-list span {
+  color: #667386;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.billing-meta dd,
+.usage-list b {
+  margin: 0;
+  color: #071a2d;
+  font-weight: 850;
+  text-align: right;
+}
+
+.usage-list,
+.feature-list,
+.transaction-list {
+  display: grid;
+  gap: 10px;
+}
+
+.billing-section {
+  display: grid;
+  gap: 14px;
+}
+
+.billing-section-head {
+  display: grid;
+  gap: 12px;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(223, 232, 244, 0.92);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.segmented-control button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #667386;
+  font-weight: 850;
+}
+
+.segmented-control button.active {
+  background: #071a2d;
+  color: #fff;
+}
+
+.pricing-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.pricing-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.pricing-card.current {
+  border-color: rgba(112, 213, 207, 0.82);
+  box-shadow: 0 0 0 2px rgba(112, 213, 207, 0.28), 0 18px 50px rgba(0, 37, 66, 0.08);
+}
+
+.pricing-card-head {
+  display: grid;
+  gap: 8px;
+}
+
+.pricing-card-head > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pricing-card-head b {
+  color: #071a2d;
+  font-size: 18px;
+}
+
+.pricing-card-head strong {
+  color: #071a2d;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.pricing-card-head small {
+  color: #667386;
+  font-weight: 700;
+}
+
+.current-badge,
+.transaction-status {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 9px;
+  background: rgba(112, 213, 207, 0.16);
+  color: #1d5360;
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.feature-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feature-list li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  color: #34445d;
+  font-size: 13px;
+}
+
+.feature-list svg {
+  color: #1d7d76;
+}
+
+.feature-list b {
+  color: #071a2d;
+  text-align: right;
+}
+
+.payment-state,
+.paywall-banner {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(223, 232, 244, 0.92);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 16px 38px rgba(30, 52, 86, 0.1);
+}
+
+.payment-state > span,
+.paywall-icon {
+  width: 42px;
+  height: 42px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 14px;
+  background: rgba(171, 201, 239, 0.28);
+  color: #071a2d;
+}
+
+.payment-state b,
+.paywall-banner b {
+  color: #071a2d;
+}
+
+.payment-state p,
+.paywall-banner p {
+  margin: 3px 0 0;
+  color: #667386;
+  line-height: 1.45;
+}
+
+.payment-state.success > span {
+  background: rgba(112, 213, 207, 0.2);
+  color: #1d7d76;
+}
+
+.payment-state.pending > span,
+.transaction-status.pending {
+  background: rgba(224, 169, 95, 0.18);
+  color: #80602b;
+}
+
+.payment-state.danger > span,
+.transaction-status.danger {
+  background: rgba(254, 233, 228, 0.92);
+  color: #9f3c2d;
+}
+
+.transaction-status.success {
+  background: rgba(112, 213, 207, 0.16);
+  color: #1d5360;
+}
+
+.transaction-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(223, 232, 244, 0.92);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.transaction-row b,
+.transaction-row strong {
+  color: #071a2d;
+}
+
+.transaction-row small {
+  display: block;
+  margin-top: 3px;
+  color: #667386;
+}
+
+.paywall-banner {
+  grid-template-columns: auto 1fr auto;
+  margin: 10px 0;
+}
+
+.paywall-banner.compact {
+  position: static;
+}
+
+.paywall-banner .primary {
+  min-width: 120px;
+}
+
+.mock-checkout-page .auth-card {
+  width: min(100%, 440px);
+}
+
+@media (max-width: 767px) {
+  .billing-content {
+    padding-bottom: calc(118px + env(safe-area-inset-bottom));
+  }
+
+  .current-plan-name strong {
+    font-size: 28px;
+  }
+
+  .payment-state,
+  .paywall-banner,
+  .transaction-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .payment-state > span,
+  .paywall-icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .paywall-banner .primary,
+  .billing-section-head .segmented-control {
+    width: 100%;
+  }
+
+  .transaction-row strong,
+  .billing-meta dd,
+  .usage-list b,
+  .feature-list b {
+    text-align: left;
+  }
+}
+
+@media (min-width: 768px) {
+  .billing-overview {
+    grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+  }
+
+  .billing-section-head {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+
+  .segmented-control {
+    width: 260px;
+  }
+
+  .pricing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1120px) {
+  .pricing-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}

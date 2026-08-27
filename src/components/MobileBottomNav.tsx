@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { BarChart3, CalendarClock, Home, Plus, Settings } from "lucide-react";
+import { BarChart3, CalendarClock, CreditCard, Home, Plus, Settings } from "lucide-react";
 
 type MobileBottomNavProps = {
-  active: "dashboard" | "daily-plan" | "admin";
+  active: "dashboard" | "daily-plan" | "admin" | "billing";
   onPrimary: () => void;
   onSettings?: () => void;
   primaryLabel?: string;
@@ -28,10 +28,17 @@ export default function MobileBottomNav({ active, onPrimary, onSettings, primary
         <BarChart3 size={20} />
         <span>Tracker</span>
       </Link>
-      <button type="button" onClick={onSettings} aria-label="Settings">
-        <Settings size={20} />
-        <span>Set</span>
-      </button>
+      {onSettings ? (
+        <button type="button" onClick={onSettings} aria-label="Settings">
+          <Settings size={20} />
+          <span>Set</span>
+        </button>
+      ) : (
+        <Link className={active === "billing" ? "active" : ""} href="/billing" aria-label="Billing">
+          <CreditCard size={20} />
+          <span>Bill</span>
+        </Link>
+      )}
     </nav>
   );
 }

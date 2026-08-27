@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { CalendarClock, ClipboardList, LayoutDashboard, LogOut, Settings, ShieldCheck, UserRound } from "lucide-react";
+import { CalendarClock, ClipboardList, CreditCard, LayoutDashboard, LogOut, Settings, ShieldCheck, UserRound } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type HeaderUser = {
@@ -13,7 +13,7 @@ type HeaderUser = {
 
 type AppHeaderProps = {
   user?: HeaderUser | null;
-  active?: "dashboard" | "admin" | "daily-plan";
+  active?: "dashboard" | "admin" | "daily-plan" | "billing";
   onProfile?: () => void;
   onLogout: () => void;
 };
@@ -87,6 +87,10 @@ export default function AppHeader({ user, active = "dashboard", onProfile, onLog
             <Link href="/dashboard#tracker" onClick={() => setOpen(false)}>
               <ClipboardList size={16} />
               Tracker
+            </Link>
+            <Link className={active === "billing" ? "active" : ""} href="/billing" onClick={() => setOpen(false)}>
+              <CreditCard size={16} />
+              Billing
             </Link>
             {isAdmin && (
               <Link className={active === "admin" ? "active" : ""} href="/admin" onClick={() => setOpen(false)}>

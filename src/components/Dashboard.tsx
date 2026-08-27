@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import MobileBottomNav from "@/components/MobileBottomNav";
+import PaywallBanner from "@/components/PaywallBanner";
 import ProfileSettings from "@/components/ProfileSettings";
 import StartDatePicker from "@/components/StartDatePicker";
 import { readJson } from "@/lib/http";
@@ -73,6 +74,7 @@ export default function Dashboard() {
   const [weekIndex, setWeekIndex] = useState(0);
   const [showAllDays, setShowAllDays] = useState(false);
   const [error, setError] = useState("");
+  const [paywall, setPaywall] = useState("");
   const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
@@ -148,12 +150,14 @@ export default function Dashboard() {
   async function post(path: string, body: unknown) {
     const r = await fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
     if (!r.ok) {
-      const data = await readJson<{ error?: string }>(r);
+      const data = await readJson<{ error?: string; code?: string }>(r);
       setNotice("");
+      setPaywall(data.code === "LIMIT_REACHED" ? data.error || "Limit paket Anda sudah tercapai." : "");
       setError(data.error || "Gagal");
       return false;
     }
     setError("");
+    setPaywall("");
     await load();
     return true;
   }
@@ -209,13 +213,15 @@ export default function Dashboard() {
       headers,
       body: JSON.stringify({ title: f.get("title"), subtitle: `${days} Hari — ${tagline}`, days, activities: [], phases }),
     });
-    const data = await readJson<{ error?: string; id?: string }>(r);
+    const data = await readJson<{ error?: string; id?: string; code?: string }>(r);
     if (!r.ok) {
       setNotice("");
+      setPaywall(data.code === "LIMIT_REACHED" ? data.error || "Limit paket Anda sudah tercapai." : "");
       setError(data.error || "Gagal membuat tracker");
       return;
     }
     setError("");
+    setPaywall("");
     setNotice("Tracker baru berhasil dibuat, silakan tambahkan aktivitas.");
     setModal(false);
     e.currentTarget.reset();
@@ -370,7 +376,8 @@ export default function Dashboard() {
           </div>
         )}
 
-        {error && <p className="error">{error}</p>}
+        {paywall && <PaywallBanner compact message={paywall} />}
+        {error && !paywall && <p className="error">{error}</p>}
         {notice && <p className="notice success">{notice}</p>}
 
         <section className="grid-stats">

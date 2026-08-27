@@ -8,6 +8,7 @@ import { buildDefaultPhases } from "@/lib/tracker";
 import { accessibleDailyPlanWhere, accessibleModuleWhere, ensurePersonalWorkspace, findAccessibleModule, getDefaultWorkspaceIdForUser, workspaceWriteRoles } from "@/lib/workspace";
 import { getEntitlements } from "@/lib/entitlements";
 import { createCheckoutTransaction } from "@/lib/billing";
+import { getBillingSummary, getBillingTransactionStatus } from "@/lib/billingSummary";
 
 const COOKIE = process.env.SESSION_COOKIE_NAME || "tracker_session";
 const globalForAttempts = globalThis as unknown as { attempts?: Map<string, { count: number; reset: number }>; attemptsCleanup?: ReturnType<typeof setInterval> };
@@ -61,13 +62,15 @@ export async function GET(req: NextRequest) {
   }
   if (path === "/api/billing") {
     const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
-    const entitlements = await getEntitlements(workspaceId);
-    const subscription = await prisma.subscription.findFirst({ where: { workspaceId }, orderBy: { createdAt: "desc" }, include: { plan: true } });
-    return json({
-      entitlements,
-      plan: subscription ? { code: subscription.plan.code, name: subscription.plan.name } : { code: "FREE", name: "Free" },
-      subscription: subscription ? { status: subscription.status, currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null, cancelAtPeriodEnd: subscription.cancelAtPeriodEnd } : null,
-    });
+    return json(await getBillingSummary(workspaceId));
+  }
+  if (path === "/api/billing/payment-status") {
+    const transactionId = req.nextUrl.searchParams.get("transactionId");
+    if (!transactionId || !/^c[a-z0-9]{20,}$/i.test(transactionId)) return json({ error: "Invalid transactionId" }, 400);
+    const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
+    const transaction = await getBillingTransactionStatus(workspaceId, transactionId);
+    if (!transaction) return json({ error: "Not found" }, 404);
+    return json({ transaction });
   }
   if (path === "/api/modules/export") {
     const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
@@ -206,7 +209,17 @@ export async function POST(req: NextRequest) {
     const entitlements = await getEntitlements(workspaceId);
     if (entitlements.maxActivePrograms !== -1) {
       const activeCount = await prisma.module.count({ where: { workspaceId } });
-      if (activeCount >= entitlements.maxActivePrograms) return json({ error: "Batas jumlah tracker aktif untuk paket Anda sudah tercapai. Upgrade untuk tracker unlimited." }, 403);
+      if (activeCount >= entitlements.maxActivePrograms) {
+        return json({
+          error: "Batas jumlah tracker aktif untuk paket Anda sudah tercapai. Upgrade untuk tracker unlimited.",
+          code: "LIMIT_REACHED",
+          feature: "activePrograms",
+          current: activeCount,
+          limit: entitlements.maxActivePrograms,
+          requiredPlan: "PERSONAL_PRO",
+          upgradePath: "/billing",
+        }, 403);
+      }
     }
     const phaseTemplate = buildDefaultPhases(days).map((phase, idx) => {
       const custom = phases?.[idx];
