@@ -33,21 +33,24 @@ enum WorkspaceRole {
 }
 
 model User {
-  id           String      @id @default(cuid())
-  email        String      @unique
-  passwordHash String
-  name         String
-  role         UserRole    @default(USER)
-  status       UserStatus  @default(ACTIVE)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  sessions     Session[]
-  modules      Module[]
-  dailyPlans   DailyPlan[]
-  ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
-  workspaceMembers WorkspaceMember[]
-  programEnrollments ProgramEnrollment[]
-  progressSnapshots ProgressSnapshot[]
+  id                  String              @id @default(cuid())
+  email               String              @unique
+  passwordHash        String
+  name                String
+  role                UserRole            @default(USER)
+  status              UserStatus          @default(ACTIVE)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  sessions            Session[]
+  modules             Module[]
+  dailyPlans          DailyPlan[]
+  ownedWorkspaces     Workspace[]         @relation("WorkspaceOwner")
+  workspaceMembers    WorkspaceMember[]
+  programEnrollments  ProgramEnrollment[]
+  progressSnapshots   ProgressSnapshot[]
+  initiatedCoachLinks CoachClientLink[]   @relation("CoachLinkCoach")
+  receivedCoachLinks  CoachClientLink[]   @relation("CoachLinkClient")
+  coachInterventions  CoachIntervention[] @relation("CoachInterventionAuthor")
 }
 
 model Session {
@@ -63,23 +66,23 @@ model Session {
 }
 
 model Module {
-  id              String    @id @default(cuid())
-  ownerId         String
-  workspaceId     String
-  title           String
-  subtitle        String?
-  days            Int       @default(40)
-  activities      String[]
-  startDate       DateTime?
-  locksActivities Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  user            User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  phases          Phase[]
-  checks          Check[]
-  notes           Note[]
-  enrollments     ProgramEnrollment[]
+  id                String              @id @default(cuid())
+  ownerId           String
+  workspaceId       String
+  title             String
+  subtitle          String?
+  days              Int                 @default(40)
+  activities        String[]
+  startDate         DateTime?
+  locksActivities   Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  user              User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  workspace         Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  phases            Phase[]
+  checks            Check[]
+  notes             Note[]
+  enrollments       ProgramEnrollment[]
   progressSnapshots ProgressSnapshot[]
 
   @@index([ownerId])
@@ -87,22 +90,82 @@ model Module {
 }
 
 model Workspace {
-  id        String            @id @default(cuid())
-  ownerId   String
-  name      String
-  type      WorkspaceType     @default(PERSONAL)
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
-  owner     User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  members   WorkspaceMember[]
-  modules   Module[]
-  dailyPlans DailyPlan[]
-  programEnrollments ProgramEnrollment[]
-  progressSnapshots ProgressSnapshot[]
-  subscriptions Subscription[]
+  id                  String               @id @default(cuid())
+  ownerId             String
+  name                String
+  type                WorkspaceType        @default(PERSONAL)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  owner               User                 @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members             WorkspaceMember[]
+  modules             Module[]
+  dailyPlans          DailyPlan[]
+  programEnrollments  ProgramEnrollment[]
+  progressSnapshots   ProgressSnapshot[]
+  subscriptions       Subscription[]
   billingTransactions BillingTransaction[]
+  coachClientLinks    CoachClientLink[]
+  coachInterventions  CoachIntervention[]
 
   @@index([ownerId, type])
+}
+
+enum CoachClientLinkStatus {
+  PENDING
+  ACTIVE
+  DECLINED
+  REVOKED
+  EXPIRED
+}
+
+enum CoachInterventionType {
+  PRIVATE_NOTE
+  NUDGE
+}
+
+model CoachClientLink {
+  id             String                @id @default(cuid())
+  workspaceId    String
+  coachUserId    String
+  clientUserId   String?
+  clientEmail    String
+  status         CoachClientLinkStatus @default(PENDING)
+  tokenHash      String                @unique
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  consentedAt    DateTime?
+  consentVersion String?
+  declinedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  workspace      Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  coach          User                  @relation("CoachLinkCoach", fields: [coachUserId], references: [id], onDelete: Cascade)
+  client         User?                 @relation("CoachLinkClient", fields: [clientUserId], references: [id], onDelete: SetNull)
+  interventions  CoachIntervention[]
+
+  @@index([workspaceId, status])
+  @@index([coachUserId, status])
+  @@index([clientUserId, status])
+  @@index([clientEmail, status])
+  @@index([expiresAt])
+}
+
+model CoachIntervention {
+  id                String                @id @default(cuid())
+  workspaceId       String
+  coachClientLinkId String
+  authorUserId      String
+  type              CoachInterventionType
+  content           String
+  createdAt         DateTime              @default(now())
+  workspace         Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  coachClientLink   CoachClientLink       @relation(fields: [coachClientLinkId], references: [id], onDelete: Cascade)
+  author            User                  @relation("CoachInterventionAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([coachClientLinkId, createdAt])
+  @@index([authorUserId, createdAt])
 }
 
 model WorkspaceMember {
@@ -165,23 +228,23 @@ model ProgramEnrollment {
 }
 
 model ProgressSnapshot {
-  id            String   @id @default(cuid())
-  workspaceId   String
-  moduleId      String
-  userId        String
-  date          DateTime @db.Date
-  day           Int?
+  id              String    @id @default(cuid())
+  workspaceId     String
+  moduleId        String
+  userId          String
+  date            DateTime  @db.Date
+  day             Int?
   totalActivities Int
-  checkedCount  Int
-  totalCount    Int
-  progress      Int
-  perfectDays   Int
-  currentStreak Int
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  module        Module    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkedCount    Int
+  totalCount      Int
+  progress        Int
+  perfectDays     Int
+  currentStreak   Int
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module          Module    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([moduleId, userId, date])
   @@index([workspaceId, date])
@@ -190,16 +253,16 @@ model ProgressSnapshot {
 }
 
 model Plan {
-  id                  String   @id @default(cuid())
-  code                String   @unique
+  id                  String               @id @default(cuid())
+  code                String               @unique
   name                String
   monthlyPriceCents   Int
   yearlyPriceCents    Int
-  currency            String   @default("IDR")
+  currency            String               @default("IDR")
   entitlementConfig   Json
-  active              Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  active              Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
   subscriptions       Subscription[]
   billingTransactions BillingTransaction[]
 }
@@ -302,16 +365,16 @@ model FeatureSetting {
 }
 
 model DailyPlan {
-  id        String      @id @default(cuid())
-  userId    String
+  id          String      @id @default(cuid())
+  userId      String
   workspaceId String
-  date      DateTime    @db.Date
-  locked    Boolean     @default(false)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  blocks    TimeBlock[]
+  date        DateTime    @db.Date
+  locked      Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  blocks      TimeBlock[]
 
   @@unique([userId, date])
   @@index([userId, date])

@@ -7,7 +7,7 @@ import { ArrowRight } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { readJson } from "@/lib/http";
 
-export default function AuthForm({ mode }: { mode: "login" | "register" }) {
+export default function AuthForm({ mode, redirectTo = "/dashboard" }: { mode: "login" | "register"; redirectTo?: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -36,7 +36,7 @@ export default function AuthForm({ mode }: { mode: "login" | "register" }) {
       setBusy(false);
       return;
     }
-    router.replace("/dashboard");
+    router.replace(redirectTo);
     router.refresh();
   }
 

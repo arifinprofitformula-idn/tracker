@@ -1,5 +1,16 @@
 # Progress — Arva Tracker V2
 
+## 2026-08-27 — Coach Mode + billing activation
+
+- Reuse `User`, `Workspace(type=COACH)`, `WorkspaceMember`, `Module`, `Check`, plans/subscriptions, entitlement `maxClients`, catch-all API, shared header, dan `/billing`.
+- Additive gap only: `CoachClientLink` untuk invite/consent dan `CoachIntervention` untuk private note/nudge record.
+- Client bukan `WorkspaceMember`; reflection, Daily Plan label, password, session, dan billing tidak masuk Coach DTO.
+- Invite: random 32 byte, SHA-256 hash only di DB, TTL 7 hari, matching email, consent versioned.
+- Risk deterministic + reasons; metrik 7/30 hari dari window `Check.checkedAt`, bukan rata-rata snapshot kumulatif.
+- Client self-revoke dan coach revoke langsung memutus detail access.
+- Billing existing diaktifkan dan diperluas memakai authorized `workspaceId`; tidak ada backend billing kedua.
+- Migration `20260827150000_coach_mode_foundation` additive. Rollback app aman; tabel baru tetap inert.
+
 Diupdate di **akhir setiap fase**, bukan di tengah kerja. Kalau sesi kerja terganggu di tengah fase, tulis catatan singkat di bagian "Catatan sesi berjalan" di bawah checklist fase terkait — jangan centang sebagian item lalu lupa kenapa.
 
 ---

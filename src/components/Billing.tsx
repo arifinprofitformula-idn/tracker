@@ -136,6 +136,7 @@ export default function Billing({ returnState }: { returnState?: "success" | "ca
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
   const [checkoutPlan, setCheckoutPlan] = useState<PlanCode | null>(null);
   const transactionId = searchParams.get("transactionId");
+  const workspaceId = searchParams.get("workspaceId");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -152,7 +153,7 @@ export default function Billing({ returnState }: { returnState?: "success" | "ca
       return;
     }
     setUser(sessionData.user);
-    const res = await fetch("/api/billing");
+    const res = await fetch(`/api/billing${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`);
     const data = await readJson<BillingSummary & { error?: string }>(res);
     if (!res.ok) {
       setError(data.error || "Gagal memuat billing");
@@ -161,7 +162,7 @@ export default function Billing({ returnState }: { returnState?: "success" | "ca
       setSummary(data);
     }
     setLoading(false);
-  }, [router]);
+  }, [router, workspaceId]);
 
   useEffect(() => {
     load();
@@ -189,7 +190,7 @@ export default function Billing({ returnState }: { returnState?: "success" | "ca
     const res = await fetch("/api/billing/checkout", {
       method: "POST",
       headers,
-      body: JSON.stringify({ planCode, interval }),
+      body: JSON.stringify({ planCode, interval, workspaceId: workspaceId || undefined }),
     });
     const data = await readJson<{ checkoutUrl?: string; transactionId?: string; error?: string }>(res);
     setCheckoutPlan(null);

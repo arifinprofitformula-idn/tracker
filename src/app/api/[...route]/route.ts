@@ -1,14 +1,15 @@
 import type { NextRequest } from "next/server";
-import { TimeBlockStatus, UserRole, UserStatus } from "@prisma/client";
+import { CoachInterventionType, TimeBlockStatus, UserRole, UserStatus } from "@prisma/client";
 import { createSession, hashPassword, prisma, revokeSession, SESSION_DAYS, validateSession, verifyPassword } from "@/lib/prisma";
 import { ensureOwnerProgramEnrollment } from "@/lib/programEnrollment";
-import { activityActionSchema, adminUserSchema, checkoutRequestSchema, checkSchema, dailyPlanBlockActionSchema, dailyPlanCompleteSchema, dailyPlanLockSchema, dailyPlanRescheduleSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, profileSettingsSchema, registerSchema, settingSchema, startSchema } from "@/lib/validation";
+import { activityActionSchema, adminUserSchema, checkoutRequestSchema, checkSchema, coachInterventionSchema, coachInviteAcceptSchema, coachInviteSchema, coachRevokeSchema, coachSelfRevokeSchema, coachWorkspaceSchema, dailyPlanBlockActionSchema, dailyPlanCompleteSchema, dailyPlanLockSchema, dailyPlanRescheduleSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, profileSettingsSchema, registerSchema, settingSchema, startSchema } from "@/lib/validation";
 import { findOverlappingBlock, MAX_BLOCKS_PER_DAY } from "@/lib/dailyPlan";
 import { buildDefaultPhases } from "@/lib/tracker";
-import { accessibleDailyPlanWhere, accessibleModuleWhere, ensurePersonalWorkspace, findAccessibleModule, getDefaultWorkspaceIdForUser, workspaceWriteRoles } from "@/lib/workspace";
+import { accessibleDailyPlanWhere, accessibleModuleWhere, assertWorkspaceMember, ensurePersonalWorkspace, findAccessibleModule, getDefaultWorkspaceIdForUser, workspaceReadRoles, workspaceWriteRoles } from "@/lib/workspace";
 import { getEntitlements } from "@/lib/entitlements";
 import { createCheckoutTransaction } from "@/lib/billing";
 import { getBillingSummary, getBillingTransactionStatus } from "@/lib/billingSummary";
+import { acceptCoachInvite, addCoachIntervention, createCoachInvite, ensureCoachWorkspace, getCoachClientDetail, getCoachWorkspaceSummary, listCoachClients, listOwnCoachConsents, previewCoachInvite, revokeCoachClientLink, revokeOwnCoachConsent } from "@/lib/coach";
 
 const COOKIE = process.env.SESSION_COOKIE_NAME || "tracker_session";
 const globalForAttempts = globalThis as unknown as { attempts?: Map<string, { count: number; reset: number }>; attemptsCleanup?: ReturnType<typeof setInterval> };
@@ -50,6 +51,11 @@ const defaultModule = {
 export async function GET(req: NextRequest) {
   const path = route(req);
   if (path === "/api/health") { await prisma.$queryRaw`SELECT 1`; return json({ status: "ok" }); }
+  if (path === "/api/coach/invite-preview") {
+    const token = req.nextUrl.searchParams.get("token") || "";
+    try { return json(await previewCoachInvite(token)); }
+    catch (error) { return json({ error: error instanceof Error ? error.message : "Invalid invite" }, 410); }
+  }
   const auth = await actor(req);
   if (!auth) return json({ error: "Unauthorized" }, 401);
   if (path === "/api/auth/session" || path === "/api/me") {
@@ -61,13 +67,30 @@ export async function GET(req: NextRequest) {
     return json(modules);
   }
   if (path === "/api/billing") {
-    const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
+    const workspaceId = req.nextUrl.searchParams.get("workspaceId") || await getDefaultWorkspaceIdForUser(auth.userId);
+    try { await assertWorkspaceMember(auth.userId, workspaceId, workspaceReadRoles); } catch { return json({ error: "Forbidden" }, 403); }
     return json(await getBillingSummary(workspaceId));
+  }
+  if (path === "/api/coach/workspace") return json({ summary: await getCoachWorkspaceSummary(auth.userId) });
+  if (path === "/api/coach/consents") return json({ consents: await listOwnCoachConsents(auth.userId) });
+  if (path === "/api/coach/clients") {
+    const workspaceId = req.nextUrl.searchParams.get("workspaceId") || "";
+    const rangeDays = req.nextUrl.searchParams.get("range") === "30" ? 30 : 7;
+    try { return json({ clients: await listCoachClients({ workspaceId, actorUserId: auth.userId, rangeDays }) }); }
+    catch { return json({ error: "Forbidden" }, 403); }
+  }
+  if (path === "/api/coach/client") {
+    const workspaceId = req.nextUrl.searchParams.get("workspaceId") || "";
+    const linkId = req.nextUrl.searchParams.get("linkId") || "";
+    const rangeDays = req.nextUrl.searchParams.get("range") === "30" ? 30 : 7;
+    try { return json(await getCoachClientDetail({ workspaceId, linkId, actorUserId: auth.userId, rangeDays })); }
+    catch { return json({ error: "Not found" }, 404); }
   }
   if (path === "/api/billing/payment-status") {
     const transactionId = req.nextUrl.searchParams.get("transactionId");
     if (!transactionId || !/^c[a-z0-9]{20,}$/i.test(transactionId)) return json({ error: "Invalid transactionId" }, 400);
-    const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
+    const workspaceId = req.nextUrl.searchParams.get("workspaceId") || await getDefaultWorkspaceIdForUser(auth.userId);
+    try { await assertWorkspaceMember(auth.userId, workspaceId, workspaceReadRoles); } catch { return json({ error: "Forbidden" }, 403); }
     const transaction = await getBillingTransactionStatus(workspaceId, transactionId);
     if (!transaction) return json({ error: "Not found" }, 404);
     return json({ transaction });
@@ -193,7 +216,8 @@ export async function POST(req: NextRequest) {
   if (path === "/api/billing/checkout") {
     const parsed = checkoutRequestSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
     const user = await prisma.user.findUnique({ where: { id: auth.userId } }); if (!user) return json({ error: "Unauthorized" }, 401);
-    const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
+    const workspaceId = parsed.data.workspaceId || await getDefaultWorkspaceIdForUser(auth.userId);
+    try { await assertWorkspaceMember(auth.userId, workspaceId, workspaceWriteRoles); } catch { return json({ error: "Forbidden" }, 403); }
     try {
       const transaction = await createCheckoutTransaction({ workspaceId, planCode: parsed.data.planCode, interval: parsed.data.interval, customerEmail: user.email });
       return json({ checkoutUrl: transaction.checkoutUrl, transactionId: transaction.id }, 201);
@@ -201,6 +225,41 @@ export async function POST(req: NextRequest) {
       if (error instanceof Error && error.message === "PLAN_NOT_CHECKOUTABLE") return json({ error: "Plan tidak tersedia untuk checkout" }, 400);
       throw error;
     }
+  }
+  if (path === "/api/coach/workspace") {
+    const parsed = coachWorkspaceSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    return json({ workspace: await ensureCoachWorkspace(auth.userId, parsed.data.name) }, 201);
+  }
+  if (path === "/api/coach/invites") {
+    if (limited(req)) return json({ error: "Too many attempts" }, 429);
+    const parsed = coachInviteSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    try {
+      const invite = await createCoachInvite({ ...parsed.data, actorUserId: auth.userId });
+      return json({ link: invite.link, inviteUrl: `${process.env.APP_URL || req.nextUrl.origin}/coach/invite/${invite.token}` }, 201);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "INVITE_FAILED";
+      return json({ error: code, upgradePath: code === "COACH_PLAN_REQUIRED" ? `/billing?workspaceId=${parsed.data.workspaceId}` : undefined }, code === "COACH_LINK_EXISTS" ? 409 : 403);
+    }
+  }
+  if (path === "/api/coach/invites/accept") {
+    const parsed = coachInviteAcceptSchema.safeParse(body); if (!parsed.success) return json({ error: "Consent required" }, 400);
+    try { return json({ link: await acceptCoachInvite({ ...parsed.data, clientUserId: auth.userId }) }); }
+    catch (error) { return json({ error: error instanceof Error ? error.message : "INVITE_FAILED" }, 409); }
+  }
+  if (path === "/api/coach/interventions") {
+    const parsed = coachInterventionSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    try { return json(await addCoachIntervention({ ...parsed.data, actorUserId: auth.userId, type: parsed.data.type as CoachInterventionType }), 201); }
+    catch { return json({ error: "Not found" }, 404); }
+  }
+  if (path === "/api/coach/revoke") {
+    const parsed = coachRevokeSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    try { return json(await revokeCoachClientLink({ ...parsed.data, actorUserId: auth.userId })); }
+    catch { return json({ error: "Not found" }, 404); }
+  }
+  if (path === "/api/coach/consents/revoke") {
+    const parsed = coachSelfRevokeSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    try { return json(await revokeOwnCoachConsent({ ...parsed.data, clientUserId: auth.userId })); }
+    catch { return json({ error: "Not found" }, 404); }
   }
   if (path === "/api/modules" || path === "/api/trackers") {
     const parsed = moduleCreateSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);

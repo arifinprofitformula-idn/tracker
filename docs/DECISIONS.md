@@ -4,6 +4,16 @@ Append-only. Jangan edit atau hapus entri lama — kalau keputusan berubah, tamb
 
 Format: `#N — YYYY-MM-DD — Judul singkat`
 
+### #4 — 2026-08-27 — Coach client memakai consent link, bukan workspace membership
+
+**Keputusan:** `CoachClientLink` menjadi relasi sharing sempit; staff coach tetap memakai `WorkspaceMember` existing.
+
+**Alasan:** Membership client memberi semantik akses terlalu luas. Consent link membatasi ke aggregate progress, punya expiry, version, dan revoke.
+
+**Duplicate guard:** reuse workspace, checks, enrollment, plans, subscription, billing provider, auth, dan catch-all API. Tidak membuat user, progress copy, note, billing table, atau payment provider paralel.
+
+**Rollback:** revert aplikasi aman karena migration hanya tambah enum/table/index/FK. Data consent/intervention dipertahankan untuk audit sampai ada approval penghapusan.
+
 ---
 
 ### #1 — 2026-08-27 — Stack tetap self-hosted, TIDAK migrasi ke Supabase

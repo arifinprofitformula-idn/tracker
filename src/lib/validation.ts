@@ -41,7 +41,14 @@ export const dailyPlanRescheduleSchema = z.object({
 export const checkoutRequestSchema = z.object({
   planCode: z.enum(["PERSONAL_PRO", "COACH_PRO", "COMMUNITY", "BUSINESS"]),
   interval: z.enum(["monthly", "yearly"]),
+  workspaceId: z.string().cuid().optional(),
 });
+export const coachWorkspaceSchema = z.object({ name: z.string().trim().min(2).max(80) });
+export const coachInviteSchema = z.object({ workspaceId: z.string().cuid(), clientEmail: normalizedEmail });
+export const coachInviteAcceptSchema = z.object({ token: z.string().min(40).max(200), consent: z.literal(true), consentVersion: z.string().trim().min(1).max(30) });
+export const coachInterventionSchema = z.object({ workspaceId: z.string().cuid(), linkId: z.string().cuid(), type: z.enum(["PRIVATE_NOTE", "NUDGE"]), content: z.string().trim().min(1).max(2000) });
+export const coachRevokeSchema = z.object({ workspaceId: z.string().cuid(), linkId: z.string().cuid() });
+export const coachSelfRevokeSchema = z.object({ linkId: z.string().cuid() });
 export const profileSettingsSchema = z.object({
   name: z.string().trim().min(2).max(80),
   currentPassword: z.string().max(128).optional().transform(v => v || undefined),
