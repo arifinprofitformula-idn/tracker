@@ -49,11 +49,13 @@ Diupdate di **akhir setiap fase**, bukan di tengah kerja. Kalau sesi kerja terga
 
 ## Fase C — Billing + Personal Pro
 
-- [ ] Model `Plan`, `Subscription`, `BillingTransaction`, `WebhookEvent`
-- [ ] Seed plan FREE/PERSONAL_PRO/COACH_PRO/COMMUNITY/BUSINESS
-- [ ] `getEntitlements(workspaceId)` membaca subscription server-side
-- [ ] PaymentProvider interface + mock/dev provider
-- [ ] Paywall/export/advanced progress gated by entitlement
+- [x] Model `Plan`, `Subscription`, `BillingTransaction`, `WebhookEvent`
+- [x] Seed plan FREE/PERSONAL_PRO/COACH_PRO/COMMUNITY/BUSINESS
+- [x] `getEntitlements(workspaceId)` membaca subscription server-side
+- [x] PaymentProvider interface + mock/dev provider
+- [x] Paywall/export/advanced progress gated by entitlement
+
+**Catatan sesi berjalan:** Selesai (backend) 2026-08-27. Sesi ini melanjutkan pekerjaan yang sebelumnya terhenti tanpa update dokumen (schema/seed/entitlement sudah ada dari commit sebelumnya, tapi PaymentProvider/webhook/gating belum). Ditambahkan: `PaymentProvider` interface + `mockProvider` (`src/lib/payment/`), `src/lib/billing.ts` (`createCheckoutTransaction`, `processWebhookEvent` dengan idempotency via `WebhookEvent.@@unique([provider, providerEventId])`), route `POST /api/billing/checkout`, `GET /api/billing`, dan route terpisah `POST /api/billing/webhook` (di luar catch-all, verifikasi via signature bukan cookie/sameOrigin). Gating diterapkan di 3 titik nyata: `POST /api/modules` (limit `maxActivePrograms`), `GET /api/modules/export` (CSV, `exportEnabled`), `GET /api/progress-snapshots` (`advancedAnalytics` + clamp `historyDays`). Diverifikasi end-to-end manual lewat dev server (register → checkout → simulate webhook → entitlement upgrade reflected di `/api/billing`) plus test idempotency & downgrade/cancel lulus. **Scope sengaja backend-only** — belum ada UI billing/pricing/upgrade/paywall banner di aplikasi; itu jadi item pertama kalau ada sesi lanjutan sebelum Fase D benar-benar butuh UI billing untuk coach.
 
 ---
 

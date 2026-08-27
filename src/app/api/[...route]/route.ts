@@ -2,10 +2,12 @@ import type { NextRequest } from "next/server";
 import { TimeBlockStatus, UserRole, UserStatus } from "@prisma/client";
 import { createSession, hashPassword, prisma, revokeSession, SESSION_DAYS, validateSession, verifyPassword } from "@/lib/prisma";
 import { ensureOwnerProgramEnrollment } from "@/lib/programEnrollment";
-import { activityActionSchema, adminUserSchema, checkSchema, dailyPlanBlockActionSchema, dailyPlanCompleteSchema, dailyPlanLockSchema, dailyPlanRescheduleSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, profileSettingsSchema, registerSchema, settingSchema, startSchema } from "@/lib/validation";
+import { activityActionSchema, adminUserSchema, checkoutRequestSchema, checkSchema, dailyPlanBlockActionSchema, dailyPlanCompleteSchema, dailyPlanLockSchema, dailyPlanRescheduleSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, profileSettingsSchema, registerSchema, settingSchema, startSchema } from "@/lib/validation";
 import { findOverlappingBlock, MAX_BLOCKS_PER_DAY } from "@/lib/dailyPlan";
 import { buildDefaultPhases } from "@/lib/tracker";
 import { accessibleDailyPlanWhere, accessibleModuleWhere, ensurePersonalWorkspace, findAccessibleModule, getDefaultWorkspaceIdForUser, workspaceWriteRoles } from "@/lib/workspace";
+import { getEntitlements } from "@/lib/entitlements";
+import { createCheckoutTransaction } from "@/lib/billing";
 
 const COOKIE = process.env.SESSION_COOKIE_NAME || "tracker_session";
 const globalForAttempts = globalThis as unknown as { attempts?: Map<string, { count: number; reset: number }>; attemptsCleanup?: ReturnType<typeof setInterval> };
@@ -56,6 +58,42 @@ export async function GET(req: NextRequest) {
   if (path === "/api/modules" || path === "/api/trackers") {
     const modules = await prisma.module.findMany({ where: accessibleModuleWhere(auth.userId), include: { checks: true, notes: true, phases: { orderBy: { position: "asc" } } }, orderBy: { createdAt: "asc" } });
     return json(modules);
+  }
+  if (path === "/api/billing") {
+    const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
+    const entitlements = await getEntitlements(workspaceId);
+    const subscription = await prisma.subscription.findFirst({ where: { workspaceId }, orderBy: { createdAt: "desc" }, include: { plan: true } });
+    return json({
+      entitlements,
+      plan: subscription ? { code: subscription.plan.code, name: subscription.plan.name } : { code: "FREE", name: "Free" },
+      subscription: subscription ? { status: subscription.status, currentPeriodEnd: subscription.currentPeriodEnd?.toISOString() ?? null, cancelAtPeriodEnd: subscription.cancelAtPeriodEnd } : null,
+    });
+  }
+  if (path === "/api/modules/export") {
+    const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
+    const entitlements = await getEntitlements(workspaceId);
+    if (!entitlements.exportEnabled) return json({ error: "Export tersedia untuk paket Personal Pro ke atas" }, 403);
+    const modules = await prisma.module.findMany({ where: accessibleModuleWhere(auth.userId), include: { checks: true }, orderBy: { createdAt: "asc" } });
+    const rows = [["title", "day", "activityIdx", "checkedAt"]];
+    for (const mod of modules) {
+      for (const check of mod.checks) rows.push([mod.title, String(check.day), String(check.activityIdx), check.checkedAt.toISOString()]);
+    }
+    const csv = rows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n");
+    return new Response(csv, { headers: { "Content-Type": "text/csv" } });
+  }
+  if (path === "/api/progress-snapshots") {
+    const moduleId = req.nextUrl.searchParams.get("moduleId");
+    if (!moduleId || !/^c[a-z0-9]{20,}$/i.test(moduleId)) return json({ error: "Invalid moduleId" }, 400);
+    const owned = await ownedModule(moduleId, auth.userId); if (!owned) return json({ error: "Forbidden" }, 403);
+    const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
+    const entitlements = await getEntitlements(workspaceId);
+    if (!entitlements.advancedAnalytics) return json({ error: "Analitik lanjutan tersedia untuk paket Personal Pro ke atas" }, 403);
+    const rangeParam = Number(req.nextUrl.searchParams.get("range") ?? 30);
+    const requestedDays = [7, 30, 90].includes(rangeParam) ? rangeParam : 30;
+    const days = entitlements.historyDays === -1 ? requestedDays : Math.min(requestedDays, entitlements.historyDays);
+    const cutoff = new Date(Date.now() - days * 86_400_000);
+    const snapshots = await prisma.progressSnapshot.findMany({ where: { moduleId, date: { gte: cutoff } }, orderBy: { date: "asc" } });
+    return json(snapshots);
   }
   if (path === "/api/daily-plan") {
     const dateParam = req.nextUrl.searchParams.get("date");
@@ -149,10 +187,27 @@ export async function POST(req: NextRequest) {
     const updated = await prisma.user.update({ where: { id: auth.userId }, data, select: { id: true, name: true, email: true, role: true, status: true } });
     return json({ user: updated, success: true });
   }
+  if (path === "/api/billing/checkout") {
+    const parsed = checkoutRequestSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    const user = await prisma.user.findUnique({ where: { id: auth.userId } }); if (!user) return json({ error: "Unauthorized" }, 401);
+    const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
+    try {
+      const transaction = await createCheckoutTransaction({ workspaceId, planCode: parsed.data.planCode, interval: parsed.data.interval, customerEmail: user.email });
+      return json({ checkoutUrl: transaction.checkoutUrl, transactionId: transaction.id }, 201);
+    } catch (error) {
+      if (error instanceof Error && error.message === "PLAN_NOT_CHECKOUTABLE") return json({ error: "Plan tidak tersedia untuk checkout" }, 400);
+      throw error;
+    }
+  }
   if (path === "/api/modules" || path === "/api/trackers") {
     const parsed = moduleCreateSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
     const { title, subtitle, days, phases } = parsed.data;
     const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
+    const entitlements = await getEntitlements(workspaceId);
+    if (entitlements.maxActivePrograms !== -1) {
+      const activeCount = await prisma.module.count({ where: { workspaceId } });
+      if (activeCount >= entitlements.maxActivePrograms) return json({ error: "Batas jumlah tracker aktif untuk paket Anda sudah tercapai. Upgrade untuk tracker unlimited." }, 403);
+    }
     const phaseTemplate = buildDefaultPhases(days).map((phase, idx) => {
       const custom = phases?.[idx];
       return custom ? { ...phase, label: custom.label, description: custom.description, targetPercent: custom.targetPercent } : phase;

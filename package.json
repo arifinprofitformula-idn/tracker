@@ -22,7 +22,8 @@
     "db:backfill:program-enrollments": "tsx scripts/backfill-program-enrollments.ts",
     "db:backfill:progress-snapshots": "tsx scripts/backfill-progress-snapshots.ts",
     "seed:plans": "tsx scripts/seed-plans.ts",
-    "seed:admin": "tsx scripts/seed-admin.ts"
+    "seed:admin": "tsx scripts/seed-admin.ts",
+    "simulate:webhook": "tsx scripts/simulate-webhook.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.12.0",

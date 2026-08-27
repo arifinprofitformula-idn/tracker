@@ -1,6 +1,6 @@
 # Arva Tracker V2 — Plan
 
-Status: **Fase B (Program/Tracking V2) selesai. Fase C (Billing + Personal Pro foundation) berikutnya.**
+Status: **Fase C (Billing + Personal Pro) selesai — backend. Fase D (Coach Mode) berikutnya.**
 Terakhir diperbarui: 2026-08-27
 
 Dokumen ini adalah satu-satunya sumber kebenaran soal status & arah V2. Kalau ada percakapan lama yang menyebut rencana berbeda, dokumen ini yang menang — update di sini begitu ada keputusan baru, jangan biarkan basi.
@@ -54,7 +54,7 @@ Blueprint menulis roadmap generik minggu-per-minggu. Di sini dipetakan ulang jad
 | **0** | Audit + dokumentasi landasan | AGENTS.md, DECISIONS.md, PLAN.md, PROGRESS.md ada dan disetujui | ✅ Selesai |
 | **A** | Workspace foundation | `Workspace`+`WorkspaceMember` ada, backfill personal workspace utk semua user existing, `route.ts` baca lewat membership (bukan `ownerId` langsung), test cross-tenant lulus | ✅ Selesai |
 | **B** | Program/Tracking V2 | `Module` (atau rename `programs`) resmi terhubung ke `workspace_id`, `program_enrollments` eksplisit | ✅ Selesai |
-| **C** | Billing + Personal Pro | `plans`, `subscriptions`, `billing_transactions`, `webhook_events`, PaymentProvider adapter (Midtrans/Xendit), entitlement helper server-side | ⬜ |
+| **C** | Billing + Personal Pro | `plans`, `subscriptions`, `billing_transactions`, `webhook_events`, PaymentProvider adapter (Midtrans/Xendit), entitlement helper server-side | ✅ Selesai (backend) |
 | **D** | Coach Mode | `coach_client_links`, `coach_interventions`, dashboard Needs Attention, risk score deterministik | ⬜ |
 | **E** | AI Coach | AI gateway, weekly insight, `ai_insights`/`ai_usage`, privacy filter, budget guardrail | ⬜ |
 | **F** | Community Mode | `community_challenges`, `challenge_members`, aggregate progress, leaderboard opt-in | ⬜ |
@@ -116,3 +116,16 @@ Catatan scope:
 ## 9. Yang Sengaja Ditunda (ikut rekomendasi blueprint)
 
 Marketplace payout, white-label custom domain, gamification economy kompleks, native iOS/Android, realtime chat, offline-first sync lanjutan, ML predictive churn — tidak dikerjakan sebelum Fase D-F terbukti retention & willingness-to-pay-nya.
+
+## 10. Catatan Implementasi Fase C
+
+Fase C (backend) selesai pada 2026-08-27. Pekerjaan sempat terhenti di tengah tanpa update dokumen — schema (`Plan`/`Subscription`/`BillingTransaction`/`WebhookEvent`), migration `billing_foundation`, seed 5 plan, dan `getEntitlements()` sudah ada dari sesi sebelumnya; sesi ini melengkapi sisanya:
+
+- `PaymentProvider` interface (`src/lib/payment/provider.ts`) + `mockProvider` (`src/lib/payment/mockProvider.ts`), dipilih lewat `getPaymentProvider()` (`src/lib/payment/index.ts`) — provider asli (Midtrans/Xendit) tinggal implement interface yang sama, tidak ada perubahan di caller.
+- `src/lib/billing.ts`: `createCheckoutTransaction()` (bikin `BillingTransaction` PENDING + minta checkout URL ke provider) dan `processWebhookEvent()` (verifikasi signature, idempotent lewat `WebhookEvent.@@unique([provider, providerEventId])`, transisi status transaction + upsert `Subscription`).
+- Route: `POST /api/billing/checkout`, `GET /api/billing` (di catch-all), `POST /api/billing/webhook` (route terpisah, otentikasi via signature bukan cookie — provider eksternal tidak kirim session cookie).
+- Gating entitlement diterapkan di 3 titik nyata yang sudah ada di app: limit `maxActivePrograms` saat create tracker, `GET /api/modules/export` (CSV, butuh `exportEnabled`), `GET /api/progress-snapshots` (butuh `advancedAnalytics`, range di-clamp ke `historyDays`).
+- Test: unit (`billing.test.ts`, `mockProvider.test.ts`) + integration (`billing.integration.test.ts`) yang membuktikan checkout→webhook→upgrade, idempotency (retry webhook sama tidak dobel proses), dan downgrade/cancel (`cancelAtPeriodEnd` tanpa langsung mencabut entitlement sebelum periode habis). Diverifikasi juga manual end-to-end lewat dev server.
+- Gate C→D (§5) terpenuhi: webhook idempotency ✅, upgrade/downgrade test ✅, entitlement test ✅.
+
+Catatan scope: **UI billing/pricing/upgrade/paywall banner belum dibuat** — keputusan sadar supaya Fase C tidak melebar sebelum backend teruji solid. Kalau ada sesi lanjutan sebelum Fase D butuh coach mengelola billing client, bangun UI itu dulu (halaman `/billing`, upgrade CTA, paywall banner saat limit tercapai) sebelum mulai Fase D.

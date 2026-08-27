@@ -38,6 +38,10 @@ export const dailyPlanRescheduleSchema = z.object({
   endMinute: minuteSchema,
   reason: z.string().trim().max(200).optional().transform(v => v || undefined),
 });
+export const checkoutRequestSchema = z.object({
+  planCode: z.enum(["PERSONAL_PRO", "COACH_PRO", "COMMUNITY", "BUSINESS"]),
+  interval: z.enum(["monthly", "yearly"]),
+});
 export const profileSettingsSchema = z.object({
   name: z.string().trim().min(2).max(80),
   currentPassword: z.string().max(128).optional().transform(v => v || undefined),
