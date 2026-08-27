@@ -12,7 +12,7 @@ Diupdate di **akhir setiap fase**, bukan di tengah kerja. Kalau sesi kerja terga
 - [x] `docs/ARVA_TRACKER_V2_PLAN.md` dibuat
 - [x] `docs/DECISIONS.md` dibuat
 - [x] `docs/PROGRESS.md` dibuat (file ini)
-- [ ] `.github/copilot-instructions.md` ditambahkan
+- [x] `.github/copilot-instructions.md` ditambahkan
 
 **Catatan sesi berjalan:** —
 
