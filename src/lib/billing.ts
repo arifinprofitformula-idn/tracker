@@ -1,6 +1,7 @@
 import { BillingTransactionStatus, Prisma, SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getPaymentProvider } from "@/lib/payment";
+import type { PaymentProvider } from "@/lib/payment/provider";
 import type { PlanCode } from "@/lib/entitlements";
 import { ENTITLEMENT_ACCESS_STATUSES } from "@/lib/entitlements";
 
@@ -19,11 +20,11 @@ export function computePeriodEnd(start: Date, interval: BillingInterval): Date {
 
 export async function createCheckoutTransaction(
   input: { workspaceId: string; planCode: PlanCode; interval: BillingInterval; customerEmail: string },
+  provider: PaymentProvider = getPaymentProvider(),
 ) {
   const plan = await prisma.plan.findUnique({ where: { code: input.planCode } });
   if (!plan || !plan.active || plan.code === "FREE") throw new Error("PLAN_NOT_CHECKOUTABLE");
 
-  const provider = getPaymentProvider();
   const amountCents = computeAmountCents(plan, input.interval);
 
   return prisma.$transaction(async (tx) => {
@@ -70,11 +71,10 @@ async function findLatestAccessibleSubscription(workspaceId: string, tx: Prisma.
   });
 }
 
-export async function processWebhookEvent(rawBody: string, headers: Headers) {
-  const provider = getPaymentProvider();
+export async function processWebhookEvent(rawBody: string, headers: Headers, provider: PaymentProvider = getPaymentProvider()) {
   if (!provider.verifyWebhookSignature(rawBody, headers)) throw new Error("INVALID_SIGNATURE");
 
-  const event = provider.parseWebhookEvent(rawBody);
+  const event = provider.parseWebhookEvent(rawBody, headers);
   const payload: Prisma.InputJsonValue = JSON.parse(rawBody);
 
   try {

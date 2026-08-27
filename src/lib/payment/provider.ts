@@ -15,7 +15,9 @@ export type CheckoutResult = {
   providerReference: string;
 };
 
-export type WebhookEventType = "payment.paid" | "payment.failed" | "payment.expired" | "subscription.canceled";
+// "unsupported" covers provider test/ping events (e.g. Sumopod's payment.test) — recorded for
+// idempotency but intentionally left as a no-op by processWebhookEvent.
+export type WebhookEventType = "payment.paid" | "payment.failed" | "payment.expired" | "subscription.canceled" | "unsupported";
 
 export type ParsedWebhookEvent = {
   providerEventId: string;
@@ -27,5 +29,7 @@ export interface PaymentProvider {
   name: string;
   createCheckout(input: CheckoutInput): Promise<CheckoutResult>;
   verifyWebhookSignature(rawBody: string, headers: Headers): boolean;
-  parseWebhookEvent(rawBody: string): ParsedWebhookEvent;
+  // headers is required because some providers (e.g. Sumopod/svix) carry the idempotency key
+  // (providerEventId) in a header, not in the JSON body.
+  parseWebhookEvent(rawBody: string, headers: Headers): ParsedWebhookEvent;
 }

@@ -40,7 +40,7 @@ describe("mockProvider.verifyWebhookSignature", () => {
 describe("mockProvider.parseWebhookEvent", () => {
   it("maps a valid payload to a ParsedWebhookEvent", () => {
     const rawBody = JSON.stringify({ eventId: "evt_1", type: "payment.paid", reference: "mock_txn_123" });
-    expect(provider.parseWebhookEvent(rawBody)).toEqual({
+    expect(provider.parseWebhookEvent(rawBody, new Headers())).toEqual({
       providerEventId: "evt_1",
       eventType: "payment.paid",
       providerReference: "mock_txn_123",
@@ -49,6 +49,6 @@ describe("mockProvider.parseWebhookEvent", () => {
 
   it("throws on a malformed payload", () => {
     const rawBody = JSON.stringify({ eventId: "evt_1", type: "not-a-real-type", reference: "mock_txn_123" });
-    expect(() => provider.parseWebhookEvent(rawBody)).toThrow();
+    expect(() => provider.parseWebhookEvent(rawBody, new Headers())).toThrow();
   });
 });

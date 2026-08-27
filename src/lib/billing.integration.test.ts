@@ -4,7 +4,7 @@ import { seedPlans } from "./plans";
 import { ensurePersonalWorkspace } from "./workspace";
 import { getEntitlements } from "./entitlements";
 import { createCheckoutTransaction, processWebhookEvent } from "./billing";
-import { signMockWebhookPayload } from "./payment/mockProvider";
+import { mockProvider, signMockWebhookPayload } from "./payment/mockProvider";
 
 const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const ownerEmail = `billing-owner-${suffix}@test.local`;
@@ -32,28 +32,28 @@ describe("billing checkout + webhook", () => {
   });
 
   it("rejects checkout for a non-checkoutable plan", async () => {
-    await expect(createCheckoutTransaction({ workspaceId, planCode: "FREE", interval: "monthly", customerEmail: ownerEmail }))
+    await expect(createCheckoutTransaction({ workspaceId, planCode: "FREE", interval: "monthly", customerEmail: ownerEmail }, mockProvider))
       .rejects.toThrow("PLAN_NOT_CHECKOUTABLE");
   });
 
   it("creates a pending transaction with a checkout URL", async () => {
-    const transaction = await createCheckoutTransaction({ workspaceId, planCode: "PERSONAL_PRO", interval: "monthly", customerEmail: ownerEmail });
+    const transaction = await createCheckoutTransaction({ workspaceId, planCode: "PERSONAL_PRO", interval: "monthly", customerEmail: ownerEmail }, mockProvider);
     expect(transaction.status).toBe("PENDING");
     expect(transaction.checkoutUrl).toContain(transaction.id);
     expect(transaction.providerReference).toBe(`mock_${transaction.id}`);
   });
 
   it("activates a subscription and upgrades entitlements on payment.paid, and is idempotent on retry", async () => {
-    const transaction = await createCheckoutTransaction({ workspaceId, planCode: "PERSONAL_PRO", interval: "monthly", customerEmail: ownerEmail });
+    const transaction = await createCheckoutTransaction({ workspaceId, planCode: "PERSONAL_PRO", interval: "monthly", customerEmail: ownerEmail }, mockProvider);
     const eventId = `evt_paid_${transaction.id}`;
     const { rawBody, headers } = webhookRequest({ eventId, type: "payment.paid", reference: transaction.providerReference! });
 
-    const first = await processWebhookEvent(rawBody, headers);
+    const first = await processWebhookEvent(rawBody, headers, mockProvider);
     expect(first).toMatchObject({ processed: true, eventType: "payment.paid" });
 
     await expect(getEntitlements(workspaceId)).resolves.toMatchObject({ plan: "PERSONAL_PRO", exportEnabled: true });
 
-    const second = await processWebhookEvent(rawBody, headers);
+    const second = await processWebhookEvent(rawBody, headers, mockProvider);
     expect(second).toMatchObject({ processed: false, duplicate: true });
 
     const events = await prisma.webhookEvent.findMany({ where: { provider: "mock", providerEventId: eventId } });
@@ -64,12 +64,12 @@ describe("billing checkout + webhook", () => {
   });
 
   it("marks cancelAtPeriodEnd on subscription.canceled but keeps entitlements until period end", async () => {
-    const transaction = await createCheckoutTransaction({ workspaceId, planCode: "PERSONAL_PRO", interval: "monthly", customerEmail: ownerEmail });
+    const transaction = await createCheckoutTransaction({ workspaceId, planCode: "PERSONAL_PRO", interval: "monthly", customerEmail: ownerEmail }, mockProvider);
     const paid = webhookRequest({ eventId: `evt_paid2_${transaction.id}`, type: "payment.paid", reference: transaction.providerReference! });
-    await processWebhookEvent(paid.rawBody, paid.headers);
+    await processWebhookEvent(paid.rawBody, paid.headers, mockProvider);
 
     const canceled = webhookRequest({ eventId: `evt_cancel_${transaction.id}`, type: "subscription.canceled", reference: transaction.providerReference! });
-    const result = await processWebhookEvent(canceled.rawBody, canceled.headers);
+    const result = await processWebhookEvent(canceled.rawBody, canceled.headers, mockProvider);
     expect(result).toMatchObject({ processed: true, eventType: "subscription.canceled" });
 
     const subscription = await prisma.subscription.findFirst({ where: { workspaceId, providerSubscriptionId: transaction.providerReference! } });
@@ -81,6 +81,6 @@ describe("billing checkout + webhook", () => {
   it("throws on an invalid webhook signature", async () => {
     const rawBody = JSON.stringify({ eventId: "evt_bad", type: "payment.paid", reference: "mock_nonexistent" });
     const headers = new Headers({ "x-mock-signature": "deadbeef" });
-    await expect(processWebhookEvent(rawBody, headers)).rejects.toThrow("INVALID_SIGNATURE");
+    await expect(processWebhookEvent(rawBody, headers, mockProvider)).rejects.toThrow("INVALID_SIGNATURE");
   });
 });

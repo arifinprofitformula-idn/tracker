@@ -1,9 +1,16 @@
 import type { PaymentProvider } from "@/lib/payment/provider";
 import { mockProvider } from "@/lib/payment/mockProvider";
+import { createSumopodProvider } from "@/lib/payment/sumopodProvider";
+
+let sumopodProvider: PaymentProvider | undefined;
 
 export function getPaymentProvider(): PaymentProvider {
-  // Self-hosted default (docs/DECISIONS.md #1). Real provider adapters (Midtrans/Xendit)
-  // slot in here later without changing callers — they all go through this factory.
+  // Defaults to mock so tests and un-configured local envs never hit a real gateway.
+  // Set PAYMENT_PROVIDER=sumopod (+ SUMOPOD_* env vars) to go live.
+  if (process.env.PAYMENT_PROVIDER === "sumopod") {
+    sumopodProvider ??= createSumopodProvider();
+    return sumopodProvider;
+  }
   return mockProvider;
 }
 
