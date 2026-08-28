@@ -17,6 +17,9 @@ function sign(rawBody: string, secret: string): string {
 export function createMockProvider(secret = process.env.MOCK_PROVIDER_SECRET || "dev-secret"): PaymentProvider {
   return {
     name: "mock",
+    async listPaymentMethods() {
+      return [{ code: "MOCK", label: "Simulasi lokal", category: "test" as const, enabled: true }];
+    },
     async createCheckout(input: CheckoutInput): Promise<CheckoutResult> {
       const baseUrl = process.env.APP_URL || "http://localhost:3500";
       return {

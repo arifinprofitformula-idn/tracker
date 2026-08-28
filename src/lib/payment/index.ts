@@ -14,4 +14,12 @@ export function getPaymentProvider(): PaymentProvider {
   return mockProvider;
 }
 
+export async function getPaymentConfiguration() {
+  const provider = getPaymentProvider();
+  const sumopodReady = provider.name === "sumopod" && Boolean(process.env.SUMOPOD_API_KEY && process.env.SUMOPOD_WEBHOOK_SECRET);
+  const checkoutEnabled = provider.name === "mock" ? process.env.NODE_ENV !== "production" : sumopodReady;
+  const methods = (await provider.listPaymentMethods()).map(method => ({ ...method, enabled: method.enabled && checkoutEnabled }));
+  return { provider: provider.name, checkoutEnabled, methods };
+}
+
 export type { PaymentProvider, CheckoutInput, CheckoutResult, ParsedWebhookEvent } from "@/lib/payment/provider";

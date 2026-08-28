@@ -30,15 +30,38 @@ function requireEnv(name: string): string {
   return value;
 }
 
+const METHOD_META: Record<string, { label: string; category: "qr" | "bank" | "wallet" | "card" | "retail" | "other" }> = {
+  QRIS: { label: "QRIS", category: "qr" },
+  VIRTUAL_ACCOUNT_BCA: { label: "Virtual Account BCA", category: "bank" },
+  VIRTUAL_ACCOUNT_BNI: { label: "Virtual Account BNI", category: "bank" },
+  VIRTUAL_ACCOUNT_BRI: { label: "Virtual Account BRI", category: "bank" },
+  VIRTUAL_ACCOUNT_MANDIRI: { label: "Virtual Account Mandiri", category: "bank" },
+  DANA: { label: "DANA", category: "wallet" },
+  OVO: { label: "OVO", category: "wallet" },
+  GOPAY: { label: "GoPay", category: "wallet" },
+  CREDIT_CARD: { label: "Kartu kredit/debit", category: "card" },
+};
+
+function configuredMethodCodes(): string[] {
+  const raw = process.env.SUMOPOD_PAYMENT_METHOD_TYPE_CODES || process.env.SUMOPOD_PAYMENT_METHOD_TYPE_CODE || "QRIS";
+  return [...new Set(raw.split(",").map(code => code.trim().toUpperCase()).filter(Boolean))];
+}
+
 export function createSumopodProvider(): PaymentProvider {
   return {
     name: "sumopod",
+
+    async listPaymentMethods() {
+      return configuredMethodCodes().map(code => ({ code, label: METHOD_META[code]?.label || code.replaceAll("_", " "), category: METHOD_META[code]?.category || "other", enabled: true }));
+    },
 
     async createCheckout(input: CheckoutInput): Promise<CheckoutResult> {
       const apiKey = requireEnv("SUMOPOD_API_KEY");
       const baseUrl = process.env.SUMOPOD_API_BASE_URL || "https://api-pay-sandbox.sumopod.com";
       const appUrl = process.env.APP_URL || "http://localhost:3500";
-      const paymentMethodTypeCode = process.env.SUMOPOD_PAYMENT_METHOD_TYPE_CODE || "QRIS";
+      const allowedMethods = configuredMethodCodes();
+      const paymentMethodTypeCode = input.paymentMethodCode || allowedMethods[0];
+      if (!allowedMethods.includes(paymentMethodTypeCode)) throw new Error("PAYMENT_METHOD_NOT_AVAILABLE");
 
       const res = await fetch(`${baseUrl}/api/v1/payments`, {
         method: "POST",

@@ -42,6 +42,7 @@ export const checkoutRequestSchema = z.object({
   planCode: z.enum(["PERSONAL_PRO", "COACH_PRO", "COMMUNITY", "BUSINESS"]),
   interval: z.enum(["monthly", "yearly"]),
   workspaceId: z.string().cuid().optional(),
+  paymentMethodCode: z.string().trim().regex(/^[A-Z0-9_]{2,64}$/),
 });
 export const coachWorkspaceSchema = z.object({ name: z.string().trim().min(2).max(80) });
 export const coachInviteSchema = z.object({ workspaceId: z.string().cuid(), clientEmail: normalizedEmail });

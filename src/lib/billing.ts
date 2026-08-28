@@ -19,11 +19,14 @@ export function computePeriodEnd(start: Date, interval: BillingInterval): Date {
 }
 
 export async function createCheckoutTransaction(
-  input: { workspaceId: string; planCode: PlanCode; interval: BillingInterval; customerEmail: string },
+  input: { workspaceId: string; planCode: PlanCode; interval: BillingInterval; customerEmail: string; paymentMethodCode?: string },
   provider: PaymentProvider = getPaymentProvider(),
 ) {
   const plan = await prisma.plan.findUnique({ where: { code: input.planCode } });
   if (!plan || !plan.active || plan.code === "FREE") throw new Error("PLAN_NOT_CHECKOUTABLE");
+  const methods = await provider.listPaymentMethods();
+  const paymentMethodCode = input.paymentMethodCode || methods.find(method => method.enabled)?.code;
+  if (!paymentMethodCode || !methods.some(method => method.enabled && method.code === paymentMethodCode)) throw new Error("PAYMENT_METHOD_NOT_AVAILABLE");
 
   const amountCents = computeAmountCents(plan, input.interval);
 
@@ -36,7 +39,7 @@ export async function createCheckoutTransaction(
         amountCents,
         currency: plan.currency,
         provider: provider.name,
-        metadata: { interval: input.interval },
+        metadata: { interval: input.interval, paymentMethodCode },
       },
     });
 
@@ -48,6 +51,7 @@ export async function createCheckoutTransaction(
       amountCents,
       currency: plan.currency,
       customerEmail: input.customerEmail,
+      paymentMethodCode,
     });
 
     return tx.billingTransaction.update({

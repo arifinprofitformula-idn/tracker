@@ -24,6 +24,27 @@ describe("sumopodProvider", () => {
   });
 
   describe("createCheckout", () => {
+    it("lists only configured payment method codes", async () => {
+      vi.stubEnv("SUMOPOD_PAYMENT_METHOD_TYPE_CODES", "QRIS,VIRTUAL_ACCOUNT_BCA");
+      await expect(createSumopodProvider().listPaymentMethods()).resolves.toEqual([
+        { code: "QRIS", label: "QRIS", category: "qr", enabled: true },
+        { code: "VIRTUAL_ACCOUNT_BCA", label: "Virtual Account BCA", category: "bank", enabled: true },
+      ]);
+    });
+
+    it("sends the selected configured payment method code", async () => {
+      vi.stubEnv("SUMOPOD_PAYMENT_METHOD_TYPE_CODES", "QRIS,VIRTUAL_ACCOUNT_BCA");
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ payment_id: "pay_123", payment_link_url: "https://pay.sumopod.com/pay/pay_123" }) });
+      vi.stubGlobal("fetch", fetchMock);
+      await createSumopodProvider().createCheckout({ transactionId: "txn_1", workspaceId: "ws_1", planCode: "PERSONAL_PRO", interval: "monthly", amountCents: 3900000, currency: "IDR", customerEmail: "user@test.local", paymentMethodCode: "VIRTUAL_ACCOUNT_BCA" });
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).payment_method_type_code).toBe("VIRTUAL_ACCOUNT_BCA");
+    });
+
+    it("rejects a payment method outside configured allowlist", async () => {
+      vi.stubEnv("SUMOPOD_PAYMENT_METHOD_TYPE_CODES", "QRIS");
+      await expect(createSumopodProvider().createCheckout({ transactionId: "txn_1", workspaceId: "ws_1", planCode: "PERSONAL_PRO", interval: "monthly", amountCents: 3900000, currency: "IDR", customerEmail: "user@test.local", paymentMethodCode: "VIRTUAL_ACCOUNT_BCA" })).rejects.toThrow("PAYMENT_METHOD_NOT_AVAILABLE");
+    });
+
     it("posts amount converted from cents to Rupiah and returns the checkout URL/reference", async () => {
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,

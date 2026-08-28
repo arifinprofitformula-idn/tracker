@@ -8,6 +8,7 @@ import { buildDefaultPhases } from "@/lib/tracker";
 import { accessibleDailyPlanWhere, accessibleModuleWhere, assertWorkspaceMember, ensurePersonalWorkspace, findAccessibleModule, getDefaultWorkspaceIdForUser, workspaceReadRoles, workspaceWriteRoles } from "@/lib/workspace";
 import { getEntitlements } from "@/lib/entitlements";
 import { createCheckoutTransaction } from "@/lib/billing";
+import { getPaymentConfiguration } from "@/lib/payment";
 import { getBillingSummary, getBillingTransactionStatus } from "@/lib/billingSummary";
 import { acceptCoachInvite, addCoachIntervention, createCoachInvite, ensureCoachWorkspace, getCoachClientDetail, getCoachWorkspaceSummary, listCoachClients, listOwnCoachConsents, previewCoachInvite, revokeCoachClientLink, revokeOwnCoachConsent } from "@/lib/coach";
 
@@ -70,6 +71,11 @@ export async function GET(req: NextRequest) {
     const workspaceId = req.nextUrl.searchParams.get("workspaceId") || await getDefaultWorkspaceIdForUser(auth.userId);
     try { await assertWorkspaceMember(auth.userId, workspaceId, workspaceReadRoles); } catch { return json({ error: "Forbidden" }, 403); }
     return json(await getBillingSummary(workspaceId));
+  }
+  if (path === "/api/billing/payment-methods") {
+    const workspaceId = req.nextUrl.searchParams.get("workspaceId") || await getDefaultWorkspaceIdForUser(auth.userId);
+    try { await assertWorkspaceMember(auth.userId, workspaceId, workspaceReadRoles); } catch { return json({ error: "Forbidden" }, 403); }
+    return json(await getPaymentConfiguration());
   }
   if (path === "/api/coach/workspace") return json({ summary: await getCoachWorkspaceSummary(auth.userId) });
   if (path === "/api/coach/consents") return json({ consents: await listOwnCoachConsents(auth.userId) });
@@ -219,10 +225,13 @@ export async function POST(req: NextRequest) {
     const workspaceId = parsed.data.workspaceId || await getDefaultWorkspaceIdForUser(auth.userId);
     try { await assertWorkspaceMember(auth.userId, workspaceId, workspaceWriteRoles); } catch { return json({ error: "Forbidden" }, 403); }
     try {
-      const transaction = await createCheckoutTransaction({ workspaceId, planCode: parsed.data.planCode, interval: parsed.data.interval, customerEmail: user.email });
+      const payment = await getPaymentConfiguration();
+      if (!payment.checkoutEnabled) return json({ error: "Gateway pembayaran belum dikonfigurasi" }, 503);
+      const transaction = await createCheckoutTransaction({ workspaceId, planCode: parsed.data.planCode, interval: parsed.data.interval, customerEmail: user.email, paymentMethodCode: parsed.data.paymentMethodCode });
       return json({ checkoutUrl: transaction.checkoutUrl, transactionId: transaction.id }, 201);
     } catch (error) {
       if (error instanceof Error && error.message === "PLAN_NOT_CHECKOUTABLE") return json({ error: "Plan tidak tersedia untuk checkout" }, 400);
+      if (error instanceof Error && error.message === "PAYMENT_METHOD_NOT_AVAILABLE") return json({ error: "Metode pembayaran tidak tersedia" }, 400);
       throw error;
     }
   }

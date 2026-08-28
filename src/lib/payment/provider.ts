@@ -8,6 +8,14 @@ export type CheckoutInput = {
   amountCents: number;
   currency: string;
   customerEmail: string;
+  paymentMethodCode?: string;
+};
+
+export type PaymentMethodOption = {
+  code: string;
+  label: string;
+  category: "qr" | "bank" | "wallet" | "card" | "retail" | "test" | "other";
+  enabled: boolean;
 };
 
 export type CheckoutResult = {
@@ -27,6 +35,7 @@ export type ParsedWebhookEvent = {
 
 export interface PaymentProvider {
   name: string;
+  listPaymentMethods(): Promise<PaymentMethodOption[]>;
   createCheckout(input: CheckoutInput): Promise<CheckoutResult>;
   verifyWebhookSignature(rawBody: string, headers: Headers): boolean;
   // headers is required because some providers (e.g. Sumopod/svix) carry the idempotency key

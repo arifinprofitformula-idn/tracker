@@ -37,10 +37,17 @@ describe("billing checkout + webhook", () => {
   });
 
   it("creates a pending transaction with a checkout URL", async () => {
-    const transaction = await createCheckoutTransaction({ workspaceId, planCode: "PERSONAL_PRO", interval: "monthly", customerEmail: ownerEmail }, mockProvider);
+    const transaction = await createCheckoutTransaction({ workspaceId, planCode: "PERSONAL_PRO", interval: "monthly", customerEmail: ownerEmail, paymentMethodCode: "MOCK" }, mockProvider);
     expect(transaction.status).toBe("PENDING");
     expect(transaction.checkoutUrl).toContain(transaction.id);
     expect(transaction.providerReference).toBe(`mock_${transaction.id}`);
+    expect(transaction.metadata).toMatchObject({ interval: "monthly", paymentMethodCode: "MOCK" });
+  });
+
+  it("rejects unavailable payment method before creating a transaction", async () => {
+    const before = await prisma.billingTransaction.count({ where: { workspaceId } });
+    await expect(createCheckoutTransaction({ workspaceId, planCode: "PERSONAL_PRO", interval: "monthly", customerEmail: ownerEmail, paymentMethodCode: "QRIS" }, mockProvider)).rejects.toThrow("PAYMENT_METHOD_NOT_AVAILABLE");
+    expect(await prisma.billingTransaction.count({ where: { workspaceId } })).toBe(before);
   });
 
   it("activates a subscription and upgrades entitlements on payment.paid, and is idempotent on retry", async () => {

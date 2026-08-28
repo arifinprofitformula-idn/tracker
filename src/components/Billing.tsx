@@ -76,6 +76,8 @@ type BillingSummary = {
   transactions: BillingTransaction[];
 };
 type User = { name: string; email: string; role: string };
+type PaymentMethod = { code: string; label: string; category: string; enabled: boolean };
+type PaymentConfig = { provider: string; checkoutEnabled: boolean; methods: PaymentMethod[] };
 
 const headers = { "Content-Type": "application/json" };
 
@@ -135,6 +137,9 @@ export default function Billing({ returnState }: { returnState?: "success" | "ca
   const [notice, setNotice] = useState("");
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
   const [checkoutPlan, setCheckoutPlan] = useState<PlanCode | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<PlanCode | null>(null);
+  const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null);
+  const [paymentMethodCode, setPaymentMethodCode] = useState("");
   const transactionId = searchParams.get("transactionId");
   const workspaceId = searchParams.get("workspaceId");
 
@@ -160,6 +165,14 @@ export default function Billing({ returnState }: { returnState?: "success" | "ca
       setSummary(null);
     } else {
       setSummary(data);
+      const methodRes = await fetch(`/api/billing/payment-methods${workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ""}`);
+      const methodData = await readJson<PaymentConfig & { error?: string }>(methodRes);
+      if (methodRes.ok) {
+        setPaymentConfig(methodData);
+        setPaymentMethodCode(methodData.methods.find(method => method.enabled)?.code || "");
+      } else {
+        setPaymentConfig(null);
+      }
     }
     setLoading(false);
   }, [router, workspaceId]);
@@ -184,13 +197,17 @@ export default function Billing({ returnState }: { returnState?: "success" | "ca
   }
 
   async function startCheckout(planCode: PlanCode) {
+    if (!paymentMethodCode) {
+      setError("Pilih metode pembayaran yang tersedia");
+      return;
+    }
     setCheckoutPlan(planCode);
     setError("");
     setNotice("");
     const res = await fetch("/api/billing/checkout", {
       method: "POST",
       headers,
-      body: JSON.stringify({ planCode, interval, workspaceId: workspaceId || undefined }),
+      body: JSON.stringify({ planCode, interval, workspaceId: workspaceId || undefined, paymentMethodCode }),
     });
     const data = await readJson<{ checkoutUrl?: string; transactionId?: string; error?: string }>(res);
     setCheckoutPlan(null);
@@ -300,6 +317,20 @@ export default function Billing({ returnState }: { returnState?: "success" | "ca
               </article>
             </section>
 
+            <section className={`card glass-card payment-config-card ${paymentConfig?.checkoutEnabled ? "ready" : "unavailable"}`}>
+              <div className="section-title-row">
+                <span className="section-icon"><CreditCard size={19} /></span>
+                <div>
+                  <b>Metode pembayaran</b>
+                  <p className="muted">{paymentConfig?.checkoutEnabled ? `Gateway ${paymentConfig.provider} aktif. Pilih metode saat upgrade.` : "Gateway pembayaran live belum dikonfigurasi. Checkout dinonaktifkan agar tidak membuat transaksi simulasi."}</p>
+                </div>
+              </div>
+              <div className="payment-method-chips">
+                {(paymentConfig?.methods ?? []).map(method => <span className={method.enabled ? "enabled" : "disabled"} key={method.code}>{method.label}</span>)}
+                {!paymentConfig?.methods.length && <span className="disabled">Belum ada metode aktif</span>}
+              </div>
+            </section>
+
             <section className="billing-section">
               <div className="billing-section-head">
                 <div className="section-title-row">
@@ -340,9 +371,9 @@ export default function Billing({ returnState }: { returnState?: "success" | "ca
                         ))}
                       </ul>
                       {typedPlan.checkoutable ? (
-                        <button className="primary icon-button full" type="button" disabled={checkoutPlan === typedPlan.code || isCurrent} onClick={() => startCheckout(typedPlan.code)}>
+                        <button className="primary icon-button full" type="button" disabled={checkoutPlan === typedPlan.code || isCurrent || !paymentConfig?.checkoutEnabled} onClick={() => setSelectedPlan(typedPlan.code)}>
                           <CreditCard size={17} />
-                          {isCurrent ? "Plan aktif" : checkoutPlan === typedPlan.code ? "Membuka checkout..." : "Upgrade"}
+                          {isCurrent ? "Plan aktif" : !paymentConfig?.checkoutEnabled ? "Gateway belum aktif" : checkoutPlan === typedPlan.code ? "Membuka checkout..." : "Pilih metode & upgrade"}
                         </button>
                       ) : (
                         <Link className="secondary icon-button full" href={typedPlan.code === "BUSINESS" ? "mailto:support@arvadigitalmedia.com" : "/dashboard"}>
@@ -381,6 +412,30 @@ export default function Billing({ returnState }: { returnState?: "success" | "ca
                 </div>
               )}
             </section>
+
+            {selectedPlan && (
+              <div className="payment-modal-backdrop" role="presentation" onMouseDown={() => setSelectedPlan(null)}>
+                <section className="payment-modal card" role="dialog" aria-modal="true" aria-labelledby="payment-modal-title" onMouseDown={event => event.stopPropagation()}>
+                  <div>
+                    <div className="eyebrow">Checkout aman</div>
+                    <h2 id="payment-modal-title">Pilih metode pembayaran</h2>
+                    <p className="muted">Pilihan dikirim ke gateway untuk paket {summary.plans.find(plan => plan.code === selectedPlan)?.name}.</p>
+                  </div>
+                  <div className="payment-method-options" role="radiogroup" aria-label="Metode pembayaran">
+                    {(paymentConfig?.methods ?? []).filter(method => method.enabled).map(method => (
+                      <button className={paymentMethodCode === method.code ? "selected" : ""} type="button" role="radio" aria-checked={paymentMethodCode === method.code} key={method.code} onClick={() => setPaymentMethodCode(method.code)}>
+                        <CreditCard size={18} /><span><b>{method.label}</b><small>{method.category}</small></span><span className="method-radio" />
+                      </button>
+                    ))}
+                  </div>
+                  <div className="payment-modal-actions">
+                    <button className="secondary" type="button" onClick={() => setSelectedPlan(null)}>Batal</button>
+                    <button className="primary" type="button" disabled={!paymentMethodCode || checkoutPlan === selectedPlan} onClick={() => startCheckout(selectedPlan)}>{checkoutPlan === selectedPlan ? "Membuka gateway..." : "Lanjut ke pembayaran"}</button>
+                  </div>
+                  <p className="payment-security"><LockKeyhole size={14} /> Detail pembayaran diproses di halaman gateway. Arva Tracker tidak menyimpan nomor kartu, PIN, atau OTP.</p>
+                </section>
+              </div>
+            )}
           </>
         ) : (
           <div className="empty-state">Billing belum tersedia untuk workspace ini.</div>
