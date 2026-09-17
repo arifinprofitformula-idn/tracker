@@ -137,3 +137,13 @@ Tambahan monetization UX sebelum Fase D:
 - Halaman `/billing` dibuat untuk current plan, usage, pricing comparison, upgrade CTA, billing history, dan payment state. Return page `/billing/success` dan `/billing/cancel` tersedia; mock provider lokal punya `/billing/mock-checkout/[transactionId]`.
 - `PaywallBanner` reusable dipakai di dashboard saat limit `maxActivePrograms` tercapai, dengan backend mengirim response terstruktur `code: "LIMIT_REACHED"` dan `upgradePath: "/billing"`.
 - Validasi sesi UI: `npm run type-check`, `npm run lint`, selected unit/security tests, dan `npm run build` hijau. Integration test billing summary ditambahkan, tetapi tidak bisa dijalankan di sesi validasi ini karena PostgreSQL lokal `localhost:5433` tidak start dari shell.
+
+## 11. Tracker Accountability Lifecycle
+
+Slice lintas fase ini ditambahkan pada 2026-09-17 untuk memperkuat North Star Progress & Accountability:
+
+- Tracker baru mempunyai periode immutable: mulai otomatis hari ini, akhir inklusif 40–100 hari.
+- Setiap hari mempunyai ledger `DailyProgress`; absence setelah deadline dimaterialisasi sebagai `MISSED` 0% dan diaudit.
+- Kepatuhan input dan nilai progress dipisahkan agar metrik tidak menutupi kualitas pelaksanaan.
+- Input hanya untuk hari berjalan; Daily Plan tetap domain independen.
+- Akhir periode memicu testimonial/refleksi hasil nyata yang persisten.

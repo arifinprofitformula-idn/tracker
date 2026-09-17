@@ -22,6 +22,13 @@
 - User can toggle a daily check and persist notes/start date.
 - Completion, perfect days, streak, phase progress, strongest/weakest are correct.
 - Deleted tracker data cascades only within owner's records.
+- New tracker starts automatically today and requires an inclusive end date at least 40 days later in duration.
+- Start/end dates and duration cannot be changed after the tracker starts.
+- Every tracker day has one persistent progress row; an elapsed unfilled day becomes `MISSED` with 0%.
+- Progress updates are accepted only for the current day and every user/system update creates an audit record.
+- Tracker timeline shows pending, submitted, and missed days independently from Daily Plan.
+- After the inclusive end date, the owner is prompted for a persistent testimonial.
+- Daily reminder copy asks the user to submit progress before 23:59.
 
 ## PWA and performance
 - Valid manifest and 192/512 icons.

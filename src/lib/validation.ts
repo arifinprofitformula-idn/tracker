@@ -10,7 +10,12 @@ const phaseInputSchema = z.object({
 export const registerSchema = z.object({ name: z.string().trim().min(2).max(80), email: normalizedEmail, password: z.string().min(10).max(128) });
 export const loginSchema = z.object({ email: normalizedEmail, password: z.string().min(1).max(128) });
 const moduleBaseSchema = z.object({ title: trackerTitleSchema, subtitle: z.string().trim().max(140).optional(), days: z.number().int().min(40).max(100), activities: z.array(activityNameSchema).max(10) });
-export const moduleCreateSchema = moduleBaseSchema.extend({ phases: z.array(phaseInputSchema).min(1).max(4).optional() });
+export const moduleCreateSchema = moduleBaseSchema.extend({
+  days: z.number().int().min(40).max(100).optional(),
+  endDate: z.string().date(),
+  activities: z.array(activityNameSchema).min(1).max(10),
+  phases: z.array(phaseInputSchema).min(1).max(4).optional(),
+});
 export const moduleUpdateSchema = moduleBaseSchema.partial().extend({ moduleId: z.string().cuid() });
 export const activityActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("add"), moduleId: z.string().cuid(), name: activityNameSchema }),
@@ -19,7 +24,12 @@ export const activityActionSchema = z.discriminatedUnion("action", [
 ]);
 export const checkSchema = z.object({ moduleId: z.string().cuid(), day: z.number().int().min(1), activityIdx: z.number().int().min(0).max(9) });
 export const noteSchema = z.object({ moduleId: z.string().cuid(), phaseKey: z.string().trim().min(1).max(80), content: z.string().max(2000) });
-export const startSchema = z.object({ moduleId: z.string().cuid(), startDate: z.string().date().nullable() });
+export const startSchema = z.object({ moduleId: z.string().cuid(), startDate: z.string().date() });
+export const dailyProgressSchema = z.object({
+  day: z.number().int().min(1),
+  progress: z.number().int().min(0).max(100),
+});
+export const testimonialSchema = z.object({ content: z.string().trim().min(20).max(2000) });
 export const adminUserSchema = z.object({ userId: z.string().cuid(), role: z.enum(["USER", "ADMIN"]).optional(), status: z.enum(["ACTIVE", "SUSPENDED"]).optional() }).refine(v => v.role || v.status);
 export const settingSchema = z.object({ key: z.string().regex(/^[a-z][a-z0-9_.-]{1,49}$/), value: z.string().max(500) });
 const dailyPlanDateSchema = z.string().date();

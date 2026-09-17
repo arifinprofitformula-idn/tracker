@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
-import { CoachInterventionType, TimeBlockStatus, UserRole, UserStatus } from "@prisma/client";
+import { CoachInterventionType, DailyProgressAuditSource, TimeBlockStatus, UserRole, UserStatus } from "@prisma/client";
 import { createSession, hashPassword, prisma, revokeSession, SESSION_DAYS, validateSession, verifyPassword } from "@/lib/prisma";
 import { ensureOwnerProgramEnrollment } from "@/lib/programEnrollment";
-import { activityActionSchema, adminUserSchema, checkoutRequestSchema, checkSchema, coachInterventionSchema, coachInviteAcceptSchema, coachInviteSchema, coachRevokeSchema, coachSelfRevokeSchema, coachWorkspaceSchema, dailyPlanBlockActionSchema, dailyPlanCompleteSchema, dailyPlanLockSchema, dailyPlanRescheduleSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, profileSettingsSchema, registerSchema, settingSchema, startSchema } from "@/lib/validation";
+import { activityActionSchema, adminUserSchema, checkoutRequestSchema, checkSchema, coachInterventionSchema, coachInviteAcceptSchema, coachInviteSchema, coachRevokeSchema, coachSelfRevokeSchema, coachWorkspaceSchema, dailyPlanBlockActionSchema, dailyPlanCompleteSchema, dailyPlanLockSchema, dailyPlanRescheduleSchema, dailyProgressSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, profileSettingsSchema, registerSchema, settingSchema, startSchema, testimonialSchema } from "@/lib/validation";
 import { findOverlappingBlock, MAX_BLOCKS_PER_DAY } from "@/lib/dailyPlan";
 import { buildDefaultPhases } from "@/lib/tracker";
 import { accessibleDailyPlanWhere, accessibleModuleWhere, assertWorkspaceMember, ensurePersonalWorkspace, findAccessibleModule, getDefaultWorkspaceIdForUser, workspaceReadRoles, workspaceWriteRoles } from "@/lib/workspace";
@@ -11,6 +11,7 @@ import { createCheckoutTransaction } from "@/lib/billing";
 import { getPaymentConfiguration } from "@/lib/payment";
 import { getBillingSummary, getBillingTransactionStatus } from "@/lib/billingSummary";
 import { acceptCoachInvite, addCoachIntervention, createCoachInvite, ensureCoachWorkspace, getCoachClientDetail, getCoachWorkspaceSummary, listCoachClients, listOwnCoachConsents, previewCoachInvite, revokeCoachClientLink, revokeOwnCoachConsent } from "@/lib/coach";
+import { canEditTrackerActivities, calculateDailyProgressSummary, dayNumberForDate, endDateForDuration, hasTrackerEnded, initializeDailyProgress, isoDateInTimeZone, progressFromChecklist, reconcileMissedDailyProgress, submitDailyProgress, trackerPeriod } from "@/lib/trackerLifecycle";
 
 const COOKIE = process.env.SESSION_COOKIE_NAME || "tracker_session";
 const globalForAttempts = globalThis as unknown as { attempts?: Map<string, { count: number; reset: number }>; attemptsCleanup?: ReturnType<typeof setInterval> };
@@ -43,11 +44,18 @@ async function actor(req: NextRequest) {
 async function ownedModule(moduleId: string, userId: string) {
   return findAccessibleModule(moduleId, userId, workspaceWriteRoles);
 }
-const defaultModule = {
-  title: "Judul Tracker Anda", subtitle: "40 Hari — Fondasi Ketenangan", days: 40,
-  activities: [],
-  phases: { create: buildDefaultPhases(40) },
-};
+function defaultModuleData() {
+  const startDate = new Date(`${isoDateInTimeZone()}T00:00:00.000Z`);
+  return {
+    title: "Judul Tracker Anda",
+    subtitle: "40 Hari — Fondasi Ketenangan",
+    days: 40,
+    activities: ["Selesaikan satu aksi utama hari ini"],
+    startDate,
+    endDate: endDateForDuration(startDate, 40),
+    phases: { create: buildDefaultPhases(40) },
+  };
+}
 
 export async function GET(req: NextRequest) {
   const path = route(req);
@@ -64,8 +72,38 @@ export async function GET(req: NextRequest) {
     return json({ user });
   }
   if (path === "/api/modules" || path === "/api/trackers") {
-    const modules = await prisma.module.findMany({ where: accessibleModuleWhere(auth.userId), include: { checks: true, notes: true, phases: { orderBy: { position: "asc" } } }, orderBy: { createdAt: "asc" } });
+    await reconcileMissedDailyProgress(auth.userId);
+    const modules = await prisma.module.findMany({
+      where: accessibleModuleWhere(auth.userId),
+      include: {
+        checks: true,
+        notes: true,
+        phases: { orderBy: { position: "asc" } },
+        dailyProgress: { where: { userId: auth.userId }, orderBy: { day: "asc" } },
+        testimonials: { where: { userId: auth.userId } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
     return json(modules);
+  }
+  const trackerDetailMatch = path.match(/^\/api\/trackers\/([^/]+)$/);
+  if (trackerDetailMatch) {
+    await reconcileMissedDailyProgress(auth.userId);
+    const trackerModule = await prisma.module.findFirst({
+      where: { id: trackerDetailMatch[1], ...accessibleModuleWhere(auth.userId) },
+      include: {
+        checks: true,
+        notes: true,
+        phases: { orderBy: { position: "asc" } },
+        dailyProgress: { where: { userId: auth.userId }, orderBy: { day: "asc" } },
+        testimonials: { where: { userId: auth.userId } },
+      },
+    });
+    if (!trackerModule) return json({ error: "Not found" }, 404);
+    return json({
+      ...trackerModule,
+      progressSummary: calculateDailyProgressSummary(trackerModule.dailyProgress, trackerModule.days),
+    });
   }
   if (path === "/api/billing") {
     const workspaceId = req.nextUrl.searchParams.get("workspaceId") || await getDefaultWorkspaceIdForUser(auth.userId);
@@ -188,8 +226,9 @@ export async function POST(req: NextRequest) {
     const user = await prisma.$transaction(async tx => {
       const created = await tx.user.create({ data: { name: parsed.data.name, email: parsed.data.email, passwordHash } });
       const workspace = await ensurePersonalWorkspace(created, tx);
-      const createdModule = await tx.module.create({ data: { ownerId: created.id, workspaceId: workspace.id, ...defaultModule } });
+      const createdModule = await tx.module.create({ data: { ownerId: created.id, workspaceId: workspace.id, ...defaultModuleData() } });
       await ensureOwnerProgramEnrollment(createdModule, tx);
+      await initializeDailyProgress(createdModule, tx);
       return created;
     });
     const session = await createSession(user.id); const res = json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } }, 201);
@@ -272,7 +311,11 @@ export async function POST(req: NextRequest) {
   }
   if (path === "/api/modules" || path === "/api/trackers") {
     const parsed = moduleCreateSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
-    const { title, subtitle, days, phases } = parsed.data;
+    const { title, subtitle, activities, phases } = parsed.data;
+    let period: ReturnType<typeof trackerPeriod>;
+    try { period = trackerPeriod(parsed.data.endDate); }
+    catch { return json({ error: "Tanggal berakhir harus menghasilkan durasi 40 sampai 100 hari termasuk hari mulai" }, 400); }
+    const { startDate, endDate, days } = period;
     const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
     const entitlements = await getEntitlements(workspaceId);
     if (entitlements.maxActivePrograms !== -1) {
@@ -294,8 +337,9 @@ export async function POST(req: NextRequest) {
       return custom ? { ...phase, label: custom.label, description: custom.description, targetPercent: custom.targetPercent } : phase;
     });
     const createdModule = await prisma.$transaction(async tx => {
-      const created = await tx.module.create({ data: { ownerId: auth.userId, workspaceId, title, subtitle, days, activities: [], phases: { create: phaseTemplate } } });
+      const created = await tx.module.create({ data: { ownerId: auth.userId, workspaceId, title, subtitle, days, activities, startDate, endDate, phases: { create: phaseTemplate } } });
       await ensureOwnerProgramEnrollment(created, tx);
+      await initializeDailyProgress(created, tx);
       return created;
     });
     return json(createdModule, 201);
@@ -304,7 +348,7 @@ export async function POST(req: NextRequest) {
     const parsed = activityActionSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
     const action = parsed.data;
     const owned = await ownedModule(action.moduleId, auth.userId); if (!owned) return json({ error: "Forbidden" }, 403);
-    if (owned.locksActivities && owned.startDate) return json({ error: "Aktivitas tracker ini sudah terkunci karena project sudah dimulai" }, 403);
+    if (owned.locksActivities && !canEditTrackerActivities(owned.startDate)) return json({ error: "Aktivitas tracker terkunci setelah hari pertama dimulai" }, 403);
     if (action.action === "add") {
       if (owned.activities.filter(Boolean).length >= 10) return json({ error: "Maksimal 10 aktivitas per tracker" }, 409);
       return json(await prisma.module.update({ where: { id: owned.id }, data: { activities: [...owned.activities, action.name] } }));
@@ -428,10 +472,30 @@ export async function POST(req: NextRequest) {
   if (path === "/api/modules/checks") {
     const parsed = checkSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
     const owned = await ownedModule(parsed.data.moduleId, auth.userId); if (!owned) return json({ error: "Forbidden" }, 403);
+    if (owned.ownerId !== auth.userId) return json({ error: "Hanya pemilik tracker yang dapat mengisi progress harian" }, 403);
     if (parsed.data.day > owned.days || parsed.data.activityIdx >= owned.activities.length || !owned.activities[parsed.data.activityIdx]) return json({ error: "Out of range" }, 400);
-    const key = { moduleId_day_activityIdx: parsed.data }; const existing = await prisma.check.findUnique({ where: key });
-    if (existing) await prisma.check.delete({ where: key }); else await prisma.check.create({ data: parsed.data });
-    return json({ checked: !existing });
+    if (!owned.startDate || !owned.endDate) return json({ error: "Tracker belum memiliki periode aktif" }, 409);
+    const today = new Date(`${isoDateInTimeZone()}T00:00:00.000Z`);
+    const currentDay = dayNumberForDate(owned.startDate, today, owned.days);
+    if (!currentDay || parsed.data.day !== currentDay || hasTrackerEnded(owned.endDate)) {
+      return json({ error: "Progress hanya dapat diisi untuk hari ini sebelum 23:59" }, 409);
+    }
+    const result = await prisma.$transaction(async tx => {
+      const key = { moduleId_day_activityIdx: parsed.data };
+      const existing = await tx.check.findUnique({ where: key });
+      if (existing) await tx.check.delete({ where: key }); else await tx.check.create({ data: parsed.data });
+      const dayChecks = await tx.check.findMany({ where: { moduleId: owned.id, day: currentDay }, select: { activityIdx: true } });
+      const dailyProgress = await submitDailyProgress({
+        moduleId: owned.id,
+        userId: owned.ownerId,
+        day: currentDay,
+        progress: progressFromChecklist(owned.activities, dayChecks.map((check) => check.activityIdx)),
+        actorUserId: auth.userId,
+        source: DailyProgressAuditSource.CHECKLIST,
+      }, tx);
+      return { checked: !existing, dailyProgress };
+    });
+    return json(result);
   }
   if (path === "/api/modules/notes") {
     const parsed = noteSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
@@ -440,8 +504,33 @@ export async function POST(req: NextRequest) {
   }
   if (path === "/api/modules/start-date") {
     const parsed = startSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
-    if (!await ownedModule(parsed.data.moduleId, auth.userId)) return json({ error: "Forbidden" }, 403);
-    return json(await prisma.module.update({ where: { id: parsed.data.moduleId }, data: { startDate: parsed.data.startDate ? new Date(`${parsed.data.startDate}T00:00:00Z`) : null } }));
+    const owned = await ownedModule(parsed.data.moduleId, auth.userId); if (!owned) return json({ error: "Forbidden" }, 403);
+    if (owned.ownerId !== auth.userId) return json({ error: "Hanya pemilik tracker yang dapat mengaktifkan periode" }, 403);
+    if (owned.startDate && owned.endDate) return json({ error: "Tanggal tracker tidak dapat diubah setelah tracker dimulai" }, 409);
+    if (!owned.startDate && parsed.data.startDate !== isoDateInTimeZone()) return json({ error: "Tracker lama hanya dapat diaktifkan mulai hari ini" }, 400);
+    const startDate = owned.startDate ?? new Date(`${parsed.data.startDate}T00:00:00.000Z`);
+    const updated = await prisma.$transaction(async tx => {
+      const trackerModule = await tx.module.update({
+        where: { id: owned.id },
+        data: { startDate, endDate: endDateForDuration(startDate, owned.days) },
+      });
+      await initializeDailyProgress(trackerModule, tx);
+      return trackerModule;
+    });
+    return json(updated);
+  }
+  const testimonialMatch = path.match(/^\/api\/trackers\/([^/]+)\/testimonial$/);
+  if (testimonialMatch) {
+    const parsed = testimonialSchema.safeParse(body); if (!parsed.success) return json({ error: "Testimoni minimal 20 karakter" }, 400);
+    const owned = await ownedModule(testimonialMatch[1], auth.userId);
+    if (!owned || owned.ownerId !== auth.userId) return json({ error: "Forbidden" }, 403);
+    if (!owned.endDate || !hasTrackerEnded(owned.endDate)) return json({ error: "Testimoni tersedia setelah periode tracker berakhir" }, 409);
+    const testimonial = await prisma.trackerTestimonial.upsert({
+      where: { moduleId_userId: { moduleId: owned.id, userId: auth.userId } },
+      update: { content: parsed.data.content },
+      create: { moduleId: owned.id, userId: auth.userId, content: parsed.data.content },
+    });
+    return json(testimonial, 201);
   }
   if (path === "/api/admin/users") {
     if (auth.role !== "ADMIN") return json({ error: "Forbidden" }, 403);
@@ -461,14 +550,45 @@ export async function POST(req: NextRequest) {
   return json({ error: "Not found" }, 404);
 }
 
+export async function PUT(req: NextRequest) {
+  if (!sameOrigin(req)) return json({ error: "Invalid origin" }, 403);
+  const auth = await actor(req); if (!auth) return json({ error: "Unauthorized" }, 401);
+  const match = route(req).match(/^\/api\/trackers\/([^/]+)\/progress$/);
+  if (!match) return json({ error: "Not found" }, 404);
+  let body: unknown;
+  try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  const parsed = dailyProgressSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+  const owned = await ownedModule(match[1], auth.userId);
+  if (!owned || owned.ownerId !== auth.userId) return json({ error: "Forbidden" }, 403);
+  if (!owned.startDate || !owned.endDate || parsed.data.day > owned.days) return json({ error: "Progress di luar periode tracker" }, 400);
+  try {
+    const dailyProgress = await prisma.$transaction(tx => submitDailyProgress({
+      moduleId: owned.id,
+      userId: auth.userId,
+      day: parsed.data.day,
+      progress: parsed.data.progress,
+      actorUserId: auth.userId,
+      source: DailyProgressAuditSource.USER,
+    }, tx));
+    const rows = await prisma.dailyProgress.findMany({ where: { moduleId: owned.id, userId: auth.userId }, orderBy: { day: "asc" } });
+    return json({ dailyProgress, progressSummary: calculateDailyProgressSummary(rows, owned.days) });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "";
+    if (code === "DAILY_PROGRESS_DATE_LOCKED" || code === "DAILY_PROGRESS_MISSED") return json({ error: "Progress hanya dapat diisi untuk hari ini sebelum 23:59" }, 409);
+    if (code === "DAILY_PROGRESS_NOT_FOUND") return json({ error: "Timeline progress belum tersedia" }, 409);
+    throw error;
+  }
+}
+
 export async function PATCH(req: NextRequest) {
   if (!sameOrigin(req)) return json({ error: "Invalid origin" }, 403);
   const auth = await actor(req); if (!auth) return json({ error: "Unauthorized" }, 401);
   const parsed = moduleUpdateSchema.safeParse(await req.json()); if (!parsed.success) return json({ error: "Validation failed" }, 400);
   const owned = await ownedModule(parsed.data.moduleId, auth.userId); if (!owned) return json({ error: "Forbidden" }, 403);
   const { moduleId, ...data } = parsed.data;
+  if (data.days !== undefined && owned.startDate) return json({ error: "Durasi tracker tidak dapat diubah setelah tracker dimulai" }, 409);
   if (data.activities) {
-    if (owned.locksActivities && owned.startDate) return json({ error: "Aktivitas tracker ini sudah terkunci karena project sudah dimulai" }, 403);
+    if (owned.locksActivities && !canEditTrackerActivities(owned.startDate)) return json({ error: "Aktivitas tracker terkunci setelah hari pertama dimulai" }, 403);
   }
   return json(await prisma.module.update({ where: { id: moduleId }, data }));
 }

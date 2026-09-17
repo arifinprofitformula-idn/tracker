@@ -86,4 +86,18 @@ describe("production security contract", () => {
     expect(api).toMatch(/api\/admin/);
     expect(api).toMatch(/api\/(trackers|modules)/);
   });
+
+  it("persists daily accountability, audit trail, and end-of-tracker testimonials", () => {
+    const schema = source("prisma/schema.prisma");
+    const api = apiSource();
+    expect(schema).toMatch(/endDate\s+DateTime\?/);
+    expect(schema).toMatch(/model DailyProgress/);
+    expect(schema).toMatch(/model DailyProgressAudit/);
+    expect(schema).toMatch(/model TrackerTestimonial/);
+    expect(schema).toMatch(/@@unique\(\[moduleId, userId, day\]\)/);
+    expect(api).toMatch(/reconcileMissedDailyProgress/);
+    expect(api).toMatch(/DailyProgressAuditSource/);
+    expect(api).toContain("/progress");
+    expect(api).toMatch(/testimonial/);
+  });
 });

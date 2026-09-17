@@ -55,3 +55,15 @@ Format: `#N — YYYY-MM-DD — Judul singkat`
 **Keputusan:** Mulai dari `Workspace`+`WorkspaceMember` sebagai fondasi, dengan backfill non-destruktif (setiap user existing dapat personal workspace otomatis).
 
 **Alasan:** Semua fase berikutnya (Coach Mode, Community, Billing per-workspace) bergantung pada konsep workspace ada duluan. Mengerjakan billing atau AI dulu tanpa fondasi ini berarti kerja ulang nanti.
+
+---
+
+### #5 — 2026-09-17 — Tracker memakai periode accountability immutable dan ledger harian
+
+**Konteks:** Tracker lama menyimpan `startDate` opsional dan checklist, tetapi tidak memiliki tanggal akhir, record eksplisit untuk hari kosong, audit perubahan progress, atau penutupan perjalanan.
+
+**Keputusan:** Tracker baru dimulai pada tanggal pembuatan, mempunyai `endDate` inklusif dengan durasi 40–100 hari, dan tanggal/durasi tidak dapat diubah setelah mulai. Setiap hari disimpan sebagai `DailyProgress`; hari yang lewat tanpa input berubah menjadi `MISSED` 0%. Nilai progress dan kepatuhan input ditampilkan sebagai metrik terpisah. Setelah tanggal akhir, pemilik diminta mengisi `TrackerTestimonial`.
+
+**Alasan:** Accountability membutuhkan bukti hari kosong, bukan hanya absence of rows. Pemisahan nilai progress dari kepatuhan mencegah input 20% dihitung sama dengan 100%, sementara testimonial menutup perjalanan dengan refleksi hasil nyata.
+
+**Konsekuensi:** `DailyPlan` tetap independen. Mutation progress hanya berlaku untuk hari berjalan, semua transisi dicatat di `DailyProgressAudit`, dan tracker lama dimigrasikan melalui script backfill additive.

@@ -1,5 +1,14 @@
 # Progress — Arva Tracker V2
 
+## 2026-09-17 — Tracker accountability lifecycle
+
+- Tracker baru otomatis mulai hari pembuatan dengan `endDate` inklusif 40–100 hari dan aktivitas awal wajib.
+- `DailyProgress` menyimpan satu slot per hari; rekonsiliasi mengubah hari kosong yang lewat menjadi `MISSED` 0%.
+- `DailyProgressAudit` mencatat perubahan user, checklist, dan sistem; tanggal/durasi terkunci setelah mulai.
+- Dashboard menampilkan timeline status, progress tertimbang, kepatuhan input, reminder sebelum 23:59, dan hanya membuka input hari berjalan.
+- `TrackerTestimonial` serta popup refleksi tersedia setelah tanggal akhir.
+- Migration dan backfill bersifat additive; `DailyPlan` tidak digabungkan ke lifecycle tracker.
+
 ## 2026-08-27 — Coach Mode + billing activation
 
 - Reuse `User`, `Workspace(type=COACH)`, `WorkspaceMember`, `Module`, `Check`, plans/subscriptions, entitlement `maxClients`, catch-all API, shared header, dan `/billing`.

@@ -21,6 +21,8 @@
     "db:backfill:workspaces": "tsx scripts/backfill-workspaces.ts",
     "db:backfill:program-enrollments": "tsx scripts/backfill-program-enrollments.ts",
     "db:backfill:progress-snapshots": "tsx scripts/backfill-progress-snapshots.ts",
+    "db:backfill:tracker-lifecycle": "tsx scripts/backfill-tracker-lifecycle.ts",
+    "tracker:reconcile-progress": "tsx scripts/reconcile-tracker-progress.ts",
     "seed:plans": "tsx scripts/seed-plans.ts",
     "seed:admin": "tsx scripts/seed-admin.ts",
     "simulate:webhook": "tsx scripts/simulate-webhook.ts"

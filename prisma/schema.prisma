@@ -33,24 +33,27 @@ enum WorkspaceRole {
 }
 
 model User {
-  id                  String              @id @default(cuid())
-  email               String              @unique
+  id                  String               @id @default(cuid())
+  email               String               @unique
   passwordHash        String
   name                String
-  role                UserRole            @default(USER)
-  status              UserStatus          @default(ACTIVE)
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
+  role                UserRole             @default(USER)
+  status              UserStatus           @default(ACTIVE)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
   sessions            Session[]
   modules             Module[]
   dailyPlans          DailyPlan[]
-  ownedWorkspaces     Workspace[]         @relation("WorkspaceOwner")
+  ownedWorkspaces     Workspace[]          @relation("WorkspaceOwner")
   workspaceMembers    WorkspaceMember[]
   programEnrollments  ProgramEnrollment[]
   progressSnapshots   ProgressSnapshot[]
-  initiatedCoachLinks CoachClientLink[]   @relation("CoachLinkCoach")
-  receivedCoachLinks  CoachClientLink[]   @relation("CoachLinkClient")
-  coachInterventions  CoachIntervention[] @relation("CoachInterventionAuthor")
+  initiatedCoachLinks CoachClientLink[]    @relation("CoachLinkCoach")
+  receivedCoachLinks  CoachClientLink[]    @relation("CoachLinkClient")
+  coachInterventions  CoachIntervention[]  @relation("CoachInterventionAuthor")
+  dailyProgress       DailyProgress[]
+  dailyProgressAudits DailyProgressAudit[] @relation("DailyProgressAuditActor")
+  trackerTestimonials TrackerTestimonial[]
 }
 
 model Session {
@@ -66,24 +69,28 @@ model Session {
 }
 
 model Module {
-  id                String              @id @default(cuid())
-  ownerId           String
-  workspaceId       String
-  title             String
-  subtitle          String?
-  days              Int                 @default(40)
-  activities        String[]
-  startDate         DateTime?
-  locksActivities   Boolean             @default(true)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  user              User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  workspace         Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  phases            Phase[]
-  checks            Check[]
-  notes             Note[]
-  enrollments       ProgramEnrollment[]
-  progressSnapshots ProgressSnapshot[]
+  id                  String               @id @default(cuid())
+  ownerId             String
+  workspaceId         String
+  title               String
+  subtitle            String?
+  days                Int                  @default(40)
+  activities          String[]
+  startDate           DateTime?
+  endDate             DateTime?
+  locksActivities     Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  user                User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  phases              Phase[]
+  checks              Check[]
+  notes               Note[]
+  enrollments         ProgramEnrollment[]
+  progressSnapshots   ProgressSnapshot[]
+  dailyProgress       DailyProgress[]
+  dailyProgressAudits DailyProgressAudit[]
+  testimonials        TrackerTestimonial[]
 
   @@index([ownerId])
   @@index([workspaceId])
@@ -207,6 +214,18 @@ enum BillingTransactionStatus {
   CANCELED
 }
 
+enum DailyProgressStatus {
+  PENDING
+  SUBMITTED
+  MISSED
+}
+
+enum DailyProgressAuditSource {
+  USER
+  SYSTEM
+  CHECKLIST
+}
+
 model ProgramEnrollment {
   id          String                  @id @default(cuid())
   workspaceId String
@@ -250,6 +269,62 @@ model ProgressSnapshot {
   @@index([workspaceId, date])
   @@index([userId, date])
   @@index([moduleId, date])
+}
+
+model DailyProgress {
+  id          String               @id @default(cuid())
+  moduleId    String
+  userId      String
+  day         Int
+  date        DateTime             @db.Date
+  progress    Int                  @default(0)
+  status      DailyProgressStatus  @default(PENDING)
+  submittedAt DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  module      Module               @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  audits      DailyProgressAudit[]
+
+  @@unique([moduleId, userId, day])
+  @@unique([moduleId, userId, date])
+  @@index([userId, date, status])
+  @@index([moduleId, status])
+}
+
+model DailyProgressAudit {
+  id               String                   @id @default(cuid())
+  dailyProgressId  String
+  moduleId         String
+  userId           String
+  actorUserId      String?
+  source           DailyProgressAuditSource
+  previousProgress Int
+  newProgress      Int
+  previousStatus   DailyProgressStatus
+  newStatus        DailyProgressStatus
+  createdAt        DateTime                 @default(now())
+  dailyProgress    DailyProgress            @relation(fields: [dailyProgressId], references: [id], onDelete: Cascade)
+  module           Module                   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  actor            User?                    @relation("DailyProgressAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([moduleId, createdAt])
+  @@index([dailyProgressId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model TrackerTestimonial {
+  id        String   @id @default(cuid())
+  moduleId  String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  module    Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([moduleId, userId])
+  @@index([userId, createdAt])
 }
 
 model Plan {

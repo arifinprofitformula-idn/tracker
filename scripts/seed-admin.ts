@@ -2,6 +2,7 @@ import { prisma, hashPassword } from "../src/lib/prisma";
 import { ensureOwnerProgramEnrollment } from "../src/lib/programEnrollment";
 import { buildDefaultPhases } from "../src/lib/tracker";
 import { ensurePersonalWorkspace } from "../src/lib/workspace";
+import { endDateForDuration, initializeDailyProgress, isoDateInTimeZone } from "../src/lib/trackerLifecycle";
 
 async function main() {
   const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
@@ -21,16 +22,20 @@ async function main() {
   });
   const count = await prisma.module.count({ where: { ownerId: user.id } });
   if (!count) {
+    const startDate = new Date(`${isoDateInTimeZone()}T00:00:00.000Z`);
     const createdModule = await prisma.module.create({ data: {
       ownerId: user.id,
       workspaceId: workspace.id,
       title: "Judul Tracker Anda",
       subtitle: "40 Hari — Fondasi Ketenangan",
       days: 40,
-      activities: [],
+      activities: ["Selesaikan satu aksi utama hari ini"],
+      startDate,
+      endDate: endDateForDuration(startDate, 40),
       phases: { create: buildDefaultPhases(40) }
     }});
     await ensureOwnerProgramEnrollment(createdModule);
+    await initializeDailyProgress(createdModule);
   } else {
     const modules = await prisma.module.findMany({
       where: { ownerId: user.id },

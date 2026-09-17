@@ -43,3 +43,20 @@ npm run db:local:status
 npm run db:local:down
 npm run db:studio
 ```
+
+## Tracker lifecycle operations
+
+After deploying the additive tracker-lifecycle migration, backfill existing trackers once:
+
+```bash
+npm run db:deploy
+npm run db:backfill:tracker-lifecycle
+```
+
+Schedule the idempotent reconciliation job shortly after midnight Asia/Jakarta (and optionally every hour as a retry):
+
+```bash
+npm run tracker:reconcile-progress
+```
+
+The dashboard also reconciles missed rows when a user returns, but the scheduled job guarantees that elapsed empty days are persisted as `MISSED` even when the user does not open the app.

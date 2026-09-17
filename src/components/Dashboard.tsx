@@ -5,10 +5,10 @@ import AppHeader from "@/components/AppHeader";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import PaywallBanner from "@/components/PaywallBanner";
 import ProfileSettings from "@/components/ProfileSettings";
-import StartDatePicker from "@/components/StartDatePicker";
 import { readJson } from "@/lib/http";
 import {
   AlertTriangle,
+  Bell,
   BookOpenText,
   CalendarDays,
   Check,
@@ -22,6 +22,7 @@ import {
   ListPlus,
   Lock,
   Mountain,
+  MessageSquareQuote,
   NotebookPen,
   PencilLine,
   Plus,
@@ -39,19 +40,25 @@ import { calculatePhaseStats } from "@/lib/tracker";
 type Check = { day: number; activityIdx: number };
 type Note = { phaseKey: string; content: string };
 type Phase = { label: string; startDay: number; endDay: number; description: string; targetPercent: number };
+type DailyProgress = { day: number; date: string; progress: number; status: "PENDING" | "SUBMITTED" | "MISSED" };
+type Testimonial = { id: string; content: string };
 type Mod = {
   id: string;
+  ownerId: string;
   title: string;
   subtitle?: string;
   days: number;
   activities: string[];
   startDate?: string;
+  endDate?: string;
   locksActivities: boolean;
   checks: Check[];
   notes: Note[];
   phases: Phase[];
+  dailyProgress: DailyProgress[];
+  testimonials: Testimonial[];
 };
-type User = { name: string; email: string; role: string };
+type User = { id: string; name: string; email: string; role: string };
 
 const headers = { "Content-Type": "application/json" };
 const PHASE_ICONS = [Rocket, Flame, Mountain, Trophy];
@@ -61,6 +68,23 @@ const TRACKER_PHASE_DEFAULTS = [
   { label: "Fase 3 — Penguatan", description: "Perkuat kebiasaan, evaluasi aktivitas yang paling berdampak.", targetPercent: 70 },
   { label: "Fase 4 — Puncak", description: "Pertahankan performa terbaik sampai program selesai.", targetPercent: 70 },
 ];
+
+function localIsoDate(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function addDaysIso(dateIso: string, days: number) {
+  const date = new Date(`${dateIso}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatDate(dateIso?: string) {
+  if (!dateIso) return "Belum ditentukan";
+  return new Intl.DateTimeFormat("id-ID", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" }).format(new Date(`${dateIso.slice(0, 10)}T00:00:00.000Z`));
+}
 
 export default function Dashboard() {
   const router = useRouter();
@@ -76,6 +100,11 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [paywall, setPaywall] = useState("");
   const [notice, setNotice] = useState("");
+  const [createEndDate, setCreateEndDate] = useState(() => addDaysIso(localIsoDate(), 39));
+  const [testimonialOpen, setTestimonialOpen] = useState(false);
+  const [testimonialDraft, setTestimonialDraft] = useState("");
+  const [testimonialDismissed, setTestimonialDismissed] = useState("");
+  const [remindersEnabled, setRemindersEnabled] = useState(false);
 
   const load = useCallback(async () => {
     const s = await fetch("/api/auth/session");
@@ -122,6 +151,20 @@ export default function Dashboard() {
     }
     return { pct, perfect, streak, today };
   }, [mod]);
+  const lifecycle = useMemo(() => {
+    if (!mod) return { submitted: 0, missed: 0, accountability: 0, progress: 0, today: undefined as DailyProgress | undefined };
+    const rows = mod.dailyProgress ?? [];
+    const submitted = rows.filter((row) => row.status === "SUBMITTED").length;
+    const missed = rows.filter((row) => row.status === "MISSED").length;
+    const points = rows.reduce((sum, row) => sum + (row.status === "SUBMITTED" ? row.progress : 0), 0);
+    return {
+      submitted,
+      missed,
+      accountability: mod.days ? Math.round((submitted / mod.days) * 100) : 0,
+      progress: mod.days ? Math.round(points / mod.days) : 0,
+      today: rows.find((row) => row.date.slice(0, 10) === localIsoDate()),
+    };
+  }, [mod]);
   const activityCount = mod?.activities.filter(Boolean).length ?? 0;
   const phaseStatsList = useMemo(() => {
     if (!mod) return [];
@@ -146,6 +189,40 @@ export default function Dashboard() {
     }
     localStorage.setItem(storageKey, String(currentPhaseIdx));
   }, [mod, stats.today]);
+
+  useEffect(() => {
+    setRemindersEnabled(localStorage.getItem("tracker-progress-reminders") === "on");
+  }, []);
+
+  useEffect(() => {
+    if (!mod?.endDate || mod.ownerId !== user?.id || mod.testimonials?.length || testimonialDismissed === mod.id) return;
+    if (localIsoDate() > mod.endDate.slice(0, 10)) {
+      setTestimonialDraft("");
+      setTestimonialOpen(true);
+    }
+  }, [mod, testimonialDismissed, user?.id]);
+
+  useEffect(() => {
+    if (!remindersEnabled || !mod || lifecycle.today?.status !== "PENDING" || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    const notificationKey = `tracker-progress-notified-${mod.id}-${localIsoDate()}`;
+    if (localStorage.getItem(notificationKey)) return;
+    const now = new Date();
+    const reminder = new Date(now);
+    reminder.setHours(20, 0, 0, 0);
+    const show = () => {
+      new Notification("Isi progress tracker hari ini sebelum jam 23:59.", {
+        body: `${mod.title}: satu langkah jujur hari ini membangun perubahan nyata.`,
+        tag: notificationKey,
+      });
+      localStorage.setItem(notificationKey, "shown");
+    };
+    if (now >= reminder) {
+      show();
+      return;
+    }
+    const timer = window.setTimeout(show, reminder.getTime() - now.getTime());
+    return () => window.clearTimeout(timer);
+  }, [remindersEnabled, mod, lifecycle.today]);
 
   async function post(path: string, body: unknown) {
     const r = await fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
@@ -194,6 +271,42 @@ export default function Dashboard() {
     if (mod) await post("/api/modules/checks", { moduleId: mod.id, day, activityIdx });
   }
 
+  async function saveDailyProgress(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!mod || !stats.today) return;
+    const progress = Number(new FormData(e.currentTarget).get("progress"));
+    const r = await fetch(`/api/trackers/${mod.id}/progress`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ day: stats.today, progress }),
+    });
+    const data = await readJson<{ error?: string }>(r);
+    if (!r.ok) {
+      setError(data.error || "Gagal menyimpan progress harian");
+      setNotice("");
+      return;
+    }
+    setError("");
+    setNotice("Progress hari ini tersimpan. Teruskan satu langkah berikutnya.");
+    await load();
+  }
+
+  async function enableTrackerReminders() {
+    if (typeof Notification === "undefined") {
+      setError("Browser ini belum mendukung notifikasi.");
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      setError("Izin notifikasi belum diberikan.");
+      return;
+    }
+    localStorage.setItem("tracker-progress-reminders", "on");
+    setRemindersEnabled(true);
+    setError("");
+    setNotice("Pengingat progress harian aktif pukul 20:00.");
+  }
+
   async function logout() {
     router.push("/logout");
   }
@@ -201,7 +314,13 @@ export default function Dashboard() {
   async function create(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
-    const days = Number(f.get("days"));
+    const endDate = String(f.get("endDate"));
+    const days = Math.round((new Date(`${endDate}T00:00:00.000Z`).getTime() - new Date(`${localIsoDate()}T00:00:00.000Z`).getTime()) / 86_400_000) + 1;
+    const activities = String(f.get("activities") || "").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+    if (activities.length < 1 || activities.length > 10) {
+      setError("Isi 1 sampai 10 aktivitas, satu aktivitas per baris.");
+      return;
+    }
     const tagline = String(f.get("tagline") || "").trim() || "Fondasi Ketenangan";
     const phases = TRACKER_PHASE_DEFAULTS.map((phase, idx) => ({
       label: String(f.get(`phaseLabel-${idx}`) || phase.label).trim(),
@@ -211,7 +330,7 @@ export default function Dashboard() {
     const r = await fetch("/api/modules", {
       method: "POST",
       headers,
-      body: JSON.stringify({ title: f.get("title"), subtitle: `${days} Hari — ${tagline}`, days, activities: [], phases }),
+      body: JSON.stringify({ title: f.get("title"), subtitle: `${days} Hari — ${tagline}`, days, endDate, activities, phases }),
     });
     const data = await readJson<{ error?: string; id?: string; code?: string }>(r);
     if (!r.ok) {
@@ -222,7 +341,7 @@ export default function Dashboard() {
     }
     setError("");
     setPaywall("");
-    setNotice("Tracker baru berhasil dibuat, silakan tambahkan aktivitas.");
+    setNotice("Tracker dimulai hari ini. Tanggal perjalanan sudah dikunci.");
     setModal(false);
     e.currentTarget.reset();
     await load();
@@ -271,11 +390,30 @@ export default function Dashboard() {
     await activityAction({ action: "delete", moduleId: mod.id, activityIdx }, "Aktivitas berhasil dihapus.");
   }
 
-  async function updateStartDate(startDate: string | null) {
+  async function startLegacyTracker() {
     if (!mod) return;
-    if (await post("/api/modules/start-date", { moduleId: mod.id, startDate })) {
-      setNotice(startDate ? "Tanggal mulai berhasil diperbarui." : "Tanggal mulai dikosongkan.");
+    if (await post("/api/modules/start-date", { moduleId: mod.id, startDate: localIsoDate() })) {
+      setNotice("Tracker dimulai hari ini. Tanggal mulai dan berakhir kini terkunci.");
     }
+  }
+
+  async function submitTestimonial(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!mod) return;
+    const r = await fetch(`/api/trackers/${mod.id}/testimonial`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ content: testimonialDraft }),
+    });
+    const data = await readJson<{ error?: string }>(r);
+    if (!r.ok) {
+      setError(data.error || "Gagal menyimpan testimoni");
+      return;
+    }
+    setTestimonialOpen(false);
+    setError("");
+    setNotice("Terima kasih. Kisah perubahan Anda sudah tersimpan.");
+    await load();
   }
 
   if (!user || !mod) {
@@ -290,7 +428,7 @@ export default function Dashboard() {
   const filledActivities = mod.activities.filter(Boolean);
   const trackerTitle = mod.title?.trim() || "Judul Tracker Anda";
   const needsSetup = filledActivities.length === 0 || !mod.startDate;
-  const activitiesLocked = mod.locksActivities && !!mod.startDate;
+  const activitiesLocked = mod.locksActivities && !!mod.startDate && localIsoDate() > mod.startDate.slice(0, 10);
   const totalWeeks = Math.ceil(mod.days / 7);
   const safeWeekIndex = Math.min(weekIndex, totalWeeks - 1);
   const pageStart = showAllDays ? 1 : safeWeekIndex * 7 + 1;
@@ -298,8 +436,8 @@ export default function Dashboard() {
   const visibleDays = Array.from({ length: pageEnd - pageStart + 1 }, (_, i) => pageStart + i);
   const todayDone = stats.today ? mod.activities.filter((a, i) => a && checkSet.has(`${stats.today}-${i}`)).length : 0;
   const statCards = [
-    { label: "Progres Total", value: `${stats.pct}%`, icon: Gauge },
-    { label: "Hari Sempurna", value: `${stats.perfect}/${mod.days}`, icon: Trophy },
+    { label: "Progress Perubahan", value: `${lifecycle.progress}%`, icon: Gauge },
+    { label: "Hari Terisi", value: `${lifecycle.submitted}/${mod.days}`, icon: Trophy },
     { label: "Streak Hari", value: stats.streak, icon: Flame },
     { label: "Hari Ke-", value: stats.today || "-", icon: Target },
   ];
@@ -392,7 +530,39 @@ export default function Dashboard() {
           ))}
         </section>
 
-        {stats.today && filledActivities.length > 0 && (
+        <section className="card glass-card accountability-card">
+          <div className="row between accountability-heading">
+            <div className="section-title-row">
+              <span className="section-icon"><Gauge size={19} /></span>
+              <div>
+                <b>Akumulasi perubahan nyata</b>
+                <small className="date-hint">Nilai harian dihitung terhadap seluruh periode, termasuk hari yang terlewat.</small>
+              </div>
+            </div>
+            <strong>{lifecycle.progress}%</strong>
+          </div>
+          <div className="accountability-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={lifecycle.progress}>
+            <span style={{ width: `${lifecycle.progress}%` }} />
+          </div>
+          <div className="accountability-meta">
+            <span>Kepatuhan input {lifecycle.accountability}%</span>
+            <span>{lifecycle.missed} hari missed</span>
+            <span>{formatDate(mod.startDate)} — {formatDate(mod.endDate)}</span>
+          </div>
+        </section>
+
+        {lifecycle.today?.status === "PENDING" && (
+          <section className="card reminder-card" role="status">
+            <span className="section-icon"><Bell size={19} /></span>
+            <div>
+              <b>Isi progress tracker hari ini sebelum jam 23:59.</b>
+              <p>Satu laporan jujur hari ini menjaga momentum perubahan Anda.</p>
+            </div>
+            {!remindersEnabled && <button type="button" className="secondary" onClick={enableTrackerReminders}>Aktifkan pengingat</button>}
+          </section>
+        )}
+
+        {stats.today && filledActivities.length > 0 && mod.ownerId === user.id && (
           <section className="card glass-card today">
             <div className="row between">
               <div className="section-title-row">
@@ -419,6 +589,23 @@ export default function Dashboard() {
                   ),
               )}
             </div>
+            <form className="daily-progress-form" onSubmit={saveDailyProgress}>
+              <label htmlFor="daily-progress-range">Nilai progress hari ini</label>
+              <div className="daily-progress-control">
+                <input
+                  id="daily-progress-range"
+                  name="progress"
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  defaultValue={lifecycle.today?.progress ?? 0}
+                  key={`${mod.id}-${lifecycle.today?.progress ?? 0}`}
+                />
+                <button className="primary" type="submit">Simpan progress</button>
+              </div>
+              <small className="date-hint">Checklist otomatis menghitung nilai; slider dapat dipakai untuk koreksi reflektif hari ini.</small>
+            </form>
           </section>
         )}
 
@@ -431,6 +618,20 @@ export default function Dashboard() {
               <b>Tracker {mod.days} Hari</b>
               <p className="muted">Geser tabel ke samping untuk semua aktivitas.</p>
             </div>
+          </div>
+          <div className="daily-progress-grid" aria-label="Timeline progress harian">
+            {visibleDays.map((day) => {
+              const row = mod.dailyProgress?.find((item) => item.day === day);
+              const status = row?.status ?? "PENDING";
+              const statusLabel = status === "MISSED" ? "Missed" : status === "SUBMITTED" ? `${row?.progress ?? 0}%` : row?.date.slice(0, 10) === localIsoDate() ? "Hari ini" : "Menunggu";
+              return (
+                <div className={`daily-progress-slot status-${status.toLowerCase()} ${row?.date.slice(0, 10) === localIsoDate() ? "is-today" : ""}`} key={day}>
+                  <b>Hari {day}</b>
+                  <span>{row ? formatDate(row.date) : "Belum aktif"}</span>
+                  <strong>{statusLabel}</strong>
+                </div>
+              );
+            })}
           </div>
           {filledActivities.length === 0 ? (
             <div className="empty-state">Tambahkan aktivitas lebih dulu agar tabel tracking bisa digunakan.</div>
@@ -479,10 +680,11 @@ export default function Dashboard() {
                           <td key={i}>
                             <span className="cell-label">{a || `Akt. ${i + 1}`}</span>
                             <button
-                              disabled={!a}
+                              disabled={!a || d !== stats.today || mod.ownerId !== user.id}
                               aria-label={`Hari ${d} ${a}`}
                               onClick={() => toggle(d, i)}
                               className={`cell ${checkSet.has(`${d}-${i}`) ? "on" : ""}`}
+                              title={d === stats.today ? "Isi progress hari ini" : "Hari lampau dan mendatang terkunci"}
                             >
                               {checkSet.has(`${d}-${i}`) ? <Check size={15} /> : ""}
                             </button>
@@ -520,11 +722,18 @@ export default function Dashboard() {
                   <CalendarDays size={19} />
                 </span>
                 <div>
-                  <b>Tanggal mulai</b>
-                  <small className="date-hint">Pilih tanggal mulai dari kalender.</small>
+                  <b>Periode accountability</b>
+                  <small className="date-hint">Tanggal dikunci setelah tracker dimulai.</small>
                 </div>
               </div>
-              <StartDatePicker value={mod.startDate ? mod.startDate.slice(0, 10) : null} onChange={updateStartDate} />
+              {mod.startDate && mod.endDate ? (
+                <div className="locked-period">
+                  <Lock size={16} />
+                  <span><b>{formatDate(mod.startDate)}</b> sampai <b>{formatDate(mod.endDate)}</b></span>
+                </div>
+              ) : (
+                <button className="primary" type="button" onClick={startLegacyTracker}>Aktifkan periode tracker lama</button>
+              )}
             </div>
 
             <div className="settings-block">
@@ -537,7 +746,7 @@ export default function Dashboard() {
                   <p className="muted">
                     {activitiesLocked
                       ? "Aktivitas terkunci karena project sudah dimulai. Aktivitas bersifat tetap sepanjang perjalanan habit ini."
-                      : "Tambahkan, edit, atau hapus aktivitas yang ingin Anda track. Maksimal 10 aktivitas per tracker. Aktivitas terkunci begitu tanggal mulai diatur."}
+                      : "Tambahkan, edit, atau hapus aktivitas yang ingin Anda track. Maksimal 10 aktivitas. Susunan aktivitas dikunci setelah hari pertama."}
                   </p>
                 </div>
               </div>
@@ -716,8 +925,27 @@ export default function Dashboard() {
               <small className="date-hint">Format tampilan: Jumlah Hari — Tagline Anda.</small>
             </div>
             <div className="field">
-              <label>Jumlah hari (minimal 40)</label>
-              <input name="days" type="number" min="40" max="100" defaultValue="40" required />
+              <label>Tanggal berakhir</label>
+              <input
+                name="endDate"
+                type="date"
+                min={addDaysIso(localIsoDate(), 39)}
+                max={addDaysIso(localIsoDate(), 99)}
+                value={createEndDate}
+                onChange={(event) => setCreateEndDate(event.target.value)}
+                required
+              />
+              <small className="date-hint">Mulai otomatis hari ini · minimal 40 hari dan maksimal 100 hari.</small>
+            </div>
+            <div className="field">
+              <label>Aktivitas perubahan</label>
+              <textarea
+                name="activities"
+                rows={4}
+                required
+                placeholder={"Satu aktivitas per baris\nContoh: Olahraga 20 menit\nMembaca 10 halaman"}
+              />
+              <small className="date-hint">Isi 1–10 aktivitas konkret. Aktivitas masih dapat dirapikan selama hari pertama.</small>
             </div>
             <div className="field">
               <label>Perjalanan fase</label>
@@ -750,18 +978,59 @@ export default function Dashboard() {
             </div>
             <div className="tracker-fresh-state">
               <div className="row between">
-                <span>Aktivitas tracker baru</span>
-                <b>0/10 aktivitas digunakan</b>
+                <span>Komitmen periode</span>
+                <b>{Math.round((new Date(`${createEndDate}T00:00:00.000Z`).getTime() - new Date(`${localIsoDate()}T00:00:00.000Z`).getTime()) / 86_400_000) + 1} hari</b>
               </div>
               <div className="activity-progress" aria-hidden="true">
-                <span style={{ width: "0%" }} />
+                <span style={{ width: "100%" }} />
               </div>
-              <small className="date-hint">Tracker baru dimulai kosong supaya tidak membawa aktivitas dari tracker sebelumnya.</small>
+              <small className="date-hint">Setelah dibuat, tanggal mulai dan berakhir tidak dapat diubah.</small>
             </div>
             <button className="primary full icon-button">
               <Plus size={18} />
               Buat tracker
             </button>
+          </form>
+        </div>
+      )}
+
+      {testimonialOpen && (
+        <div className="modal testimonial-modal" role="presentation">
+          <form className="sheet glass-card testimonial-sheet" role="dialog" aria-modal="true" aria-labelledby="testimonial-title" onSubmit={submitTestimonial}>
+            <span className="testimonial-icon" aria-hidden="true"><MessageSquareQuote size={28} /></span>
+            <div>
+              <div className="eyebrow">Perjalanan selesai</div>
+              <h2 id="testimonial-title">Ceritakan perubahan nyata yang Anda rasakan</h2>
+              <p className="muted">Refleksi ini membantu Anda melihat jarak yang sudah ditempuh dan menjadi testimoni perjalanan pribadi Anda.</p>
+            </div>
+            <div className="field">
+              <label htmlFor="testimonial-content">Testimoni Anda</label>
+              <textarea
+                id="testimonial-content"
+                value={testimonialDraft}
+                onChange={(event) => setTestimonialDraft(event.target.value)}
+                minLength={20}
+                maxLength={2000}
+                rows={7}
+                placeholder="Apa yang berubah dalam diri, rutinitas, hasil, atau cara pandang Anda setelah menyelesaikan tracker ini?"
+                required
+                autoFocus
+              />
+              <small className="date-hint">Minimal 20 karakter · {testimonialDraft.length}/2000</small>
+            </div>
+            <div className="testimonial-actions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setTestimonialOpen(false);
+                  setTestimonialDismissed(mod.id);
+                }}
+              >
+                Isi nanti
+              </button>
+              <button type="submit" className="primary">Simpan testimoni</button>
+            </div>
           </form>
         </div>
       )}

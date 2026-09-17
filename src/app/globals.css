@@ -4515,3 +4515,39 @@ button {
 /* Coach Mode extends dashboard/card styles; no parallel design system. */
 .coach-onboarding{max-width:620px;margin:40px auto;text-align:center;display:grid;justify-items:center;gap:12px}.coach-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:18px}.coach-stats .card{display:grid;gap:6px}.coach-stats small,.coach-client-card small{color:var(--muted)}.coach-stats b{font-size:1.1rem}.coach-invite{display:grid;gap:14px;margin-bottom:24px}.coach-invite h2{display:flex;align-items:center;gap:8px;margin:0 0 4px}.coach-inline{display:flex;gap:10px;align-items:stretch}.coach-inline input,.coach-detail textarea{flex:1;min-width:0}.invite-result{border:1px solid rgba(202,165,79,.3);background:rgba(202,165,79,.08);padding:12px;border-radius:14px;display:flex;gap:10px;align-items:center}.invite-result code{flex:1;overflow-wrap:anywhere;font-size:.76rem}.coach-list-head{display:flex;justify-content:space-between;align-items:end;gap:14px;margin:24px 0 12px}.coach-list-head h2{margin:0}.coach-client-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.coach-client-card{color:inherit;text-align:left;display:grid;gap:11px;border:1px solid var(--line);cursor:pointer}.coach-client-card>div:first-child{display:grid}.risk-badge{justify-self:start;border-radius:999px;padding:4px 9px;font-size:.72rem;font-weight:800}.risk-badge.green{background:rgba(45,181,128,.14);color:#176844}.risk-badge.yellow,.risk-badge.pending{background:rgba(230,179,67,.14);color:#8b6210}.risk-badge.red{background:rgba(224,87,87,.14);color:#a63030}.coach-metrics{display:flex;gap:18px;color:var(--muted);font-size:.82rem}.risk-reason{display:flex;gap:6px;align-items:center}.coach-detail{max-width:620px;max-height:90vh;overflow-y:auto}.coach-detail h3{margin:20px 0 8px}.coach-detail textarea{width:100%;min-height:100px;resize:vertical}.risk-panel{display:flex;flex-wrap:wrap;align-items:center;gap:8px;border-radius:14px;padding:12px;margin:14px 0}.risk-panel.green{background:rgba(45,181,128,.1)}.risk-panel.yellow{background:rgba(230,179,67,.1)}.risk-panel.red{background:rgba(224,87,87,.1)}.intervention-list{display:grid;gap:8px;margin:14px 0}.intervention-list article{border-left:3px solid var(--gold);background:rgba(15,35,53,.04);padding:10px 12px;border-radius:8px}.intervention-list p{margin:4px 0;white-space:pre-wrap}.danger-link{color:#a63030;background:transparent;border:0;padding:10px 0}.coach-consent{max-width:580px}.consent-scope{text-align:left;background:rgba(15,35,53,.035);border:1px solid var(--line);border-radius:14px;padding:16px;margin:16px 0}.consent-scope ul{margin:7px 0 14px;padding-left:20px;color:var(--muted)}.consent-check{display:flex;align-items:flex-start;gap:10px;text-align:left;margin:16px 0}.consent-check input{width:20px;height:20px;flex:0 0 auto}
 @media(max-width:720px){.coach-stats{grid-template-columns:1fr}.coach-client-grid{grid-template-columns:1fr}.coach-list-head,.coach-inline,.invite-result{align-items:stretch;flex-direction:column}.coach-detail{width:calc(100vw - 24px);max-height:92vh}.coach-shell .dashboard-content{padding-bottom:32px}}
+
+/* Tracker accountability lifecycle */
+.accountability-card { display: grid; gap: 14px; }
+.accountability-heading strong { color: #1d5360; font-size: 30px; }
+.accountability-progress { height: 12px; overflow: hidden; border-radius: 999px; background: #e8eff7; }
+.accountability-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #42aaa4, #7f75ff); transition: width .25s ease; }
+.accountability-meta { display: flex; flex-wrap: wrap; gap: 8px 18px; color: #667386; font-size: 12px; font-weight: 750; }
+.reminder-card { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; border-color: rgba(225,168,73,.38); background: linear-gradient(135deg, rgba(255,249,233,.96), rgba(255,255,255,.9)); }
+.reminder-card p { margin: 4px 0 0; color: #667386; }
+.daily-progress-form { display: grid; gap: 9px; margin-top: 16px; padding-top: 15px; border-top: 1px solid rgba(115,119,126,.14); }
+.daily-progress-form label { font-size: 12px; font-weight: 850; text-transform: uppercase; letter-spacing: .04em; }
+.daily-progress-control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; }
+.daily-progress-control input[type="range"] { width: 100%; accent-color: #42aaa4; }
+.daily-progress-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(112px,1fr)); gap: 9px; margin: 16px 0; }
+.daily-progress-slot { display: grid; gap: 3px; min-width: 0; padding: 11px; border: 1px solid rgba(223,232,244,.94); border-radius: 14px; background: rgba(255,255,255,.72); }
+.daily-progress-slot b { color: #071a2d; font-size: 12px; }
+.daily-progress-slot span { overflow: hidden; color: #667386; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.daily-progress-slot strong { color: #667386; font-size: 12px; }
+.daily-progress-slot.status-submitted { border-color: rgba(66,170,164,.36); background: rgba(112,213,207,.1); }
+.daily-progress-slot.status-submitted strong { color: #176844; }
+.daily-progress-slot.status-missed { border-color: rgba(224,87,87,.28); background: rgba(254,233,228,.7); }
+.daily-progress-slot.status-missed strong { color: #a63030; }
+.daily-progress-slot.is-today { box-shadow: 0 0 0 2px rgba(127,117,255,.2); }
+.locked-period { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 13px; border: 1px solid rgba(223,232,244,.94); border-radius: 14px; background: rgba(255,255,255,.7); color: #34445d; }
+.testimonial-modal { z-index: 1300; padding: 16px; place-items: center; }
+.testimonial-sheet { display: grid; gap: 16px; width: min(100%,600px); border-radius: 24px; }
+.testimonial-sheet h2 { margin: 5px 0 8px; color: #071a2d; }
+.testimonial-icon { width: 58px; height: 58px; display: grid; place-items: center; border-radius: 18px; background: linear-gradient(135deg, rgba(66,170,164,.18), rgba(127,117,255,.2)); color: #1d5360; }
+.testimonial-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
+
+@media (max-width: 767px) {
+  .reminder-card { grid-template-columns: auto 1fr; }
+  .reminder-card button { grid-column: 1 / -1; width: 100%; }
+  .daily-progress-control, .testimonial-actions { grid-template-columns: 1fr; }
+  .daily-progress-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
