@@ -86,6 +86,24 @@ function formatDate(dateIso?: string) {
   return new Intl.DateTimeFormat("id-ID", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" }).format(new Date(`${dateIso.slice(0, 10)}T00:00:00.000Z`));
 }
 
+function getTrackerSummary(tracker: Mod) {
+  const rows = tracker.dailyProgress ?? [];
+  const submitted = rows.filter((row) => row.status === "SUBMITTED").length;
+  const missed = rows.filter((row) => row.status === "MISSED").length;
+  const points = rows.reduce((sum, row) => sum + (row.status === "SUBMITTED" ? row.progress : 0), 0);
+  const today = rows.find((row) => row.date.slice(0, 10) === localIsoDate());
+  const isCompleted = !!tracker.endDate && localIsoDate() > tracker.endDate.slice(0, 10);
+
+  return {
+    submitted,
+    missed,
+    accountability: tracker.days ? Math.round((submitted / tracker.days) * 100) : 0,
+    progress: tracker.days ? Math.round(points / tracker.days) : 0,
+    today,
+    isCompleted,
+  };
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -96,7 +114,7 @@ export default function Dashboard() {
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [weekIndex, setWeekIndex] = useState(0);
-  const [showAllDays, setShowAllDays] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [error, setError] = useState("");
   const [paywall, setPaywall] = useState("");
   const [notice, setNotice] = useState("");
@@ -118,7 +136,11 @@ export default function Dashboard() {
     if (r.ok) {
       const m = await r.json();
       setMods(m);
-      setActive((x) => x || m[0]?.id || "");
+      setActive((current) => {
+        if (current && m.some((tracker: Mod) => tracker.id === current)) return current;
+        const today = localIsoDate();
+        return m.find((tracker: Mod) => !tracker.endDate || tracker.endDate.slice(0, 10) >= today)?.id || m[0]?.id || "";
+      });
     }
   }, [router]);
 
@@ -153,18 +175,13 @@ export default function Dashboard() {
   }, [mod]);
   const lifecycle = useMemo(() => {
     if (!mod) return { submitted: 0, missed: 0, accountability: 0, progress: 0, today: undefined as DailyProgress | undefined };
-    const rows = mod.dailyProgress ?? [];
-    const submitted = rows.filter((row) => row.status === "SUBMITTED").length;
-    const missed = rows.filter((row) => row.status === "MISSED").length;
-    const points = rows.reduce((sum, row) => sum + (row.status === "SUBMITTED" ? row.progress : 0), 0);
-    return {
-      submitted,
-      missed,
-      accountability: mod.days ? Math.round((submitted / mod.days) * 100) : 0,
-      progress: mod.days ? Math.round(points / mod.days) : 0,
-      today: rows.find((row) => row.date.slice(0, 10) === localIsoDate()),
-    };
+    return getTrackerSummary(mod);
   }, [mod]);
+  const trackerSummaries = useMemo(() => mods.map((tracker) => ({ tracker, summary: getTrackerSummary(tracker) })), [mods]);
+  const todayTrackers = useMemo(
+    () => trackerSummaries.filter(({ summary }) => summary.today && !summary.isCompleted).sort((a, b) => Number(a.summary.today?.status === "SUBMITTED") - Number(b.summary.today?.status === "SUBMITTED")),
+    [trackerSummaries],
+  );
   const activityCount = mod?.activities.filter(Boolean).length ?? 0;
   const phaseStatsList = useMemo(() => {
     if (!mod) return [];
@@ -174,8 +191,17 @@ export default function Dashboard() {
 
   useEffect(() => {
     setWeekIndex(stats.today ? Math.floor((stats.today - 1) / 7) : 0);
-    setShowAllDays(false);
+    setHistoryOpen(false);
   }, [mod, stats.today]);
+
+  useEffect(() => {
+    if (!historyOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setHistoryOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [historyOpen]);
 
   useEffect(() => {
     if (!mod || stats.today === null) return;
@@ -431,8 +457,8 @@ export default function Dashboard() {
   const activitiesLocked = mod.locksActivities && !!mod.startDate && localIsoDate() > mod.startDate.slice(0, 10);
   const totalWeeks = Math.ceil(mod.days / 7);
   const safeWeekIndex = Math.min(weekIndex, totalWeeks - 1);
-  const pageStart = showAllDays ? 1 : safeWeekIndex * 7 + 1;
-  const pageEnd = showAllDays ? mod.days : Math.min(pageStart + 6, mod.days);
+  const pageStart = safeWeekIndex * 7 + 1;
+  const pageEnd = Math.min(pageStart + 6, mod.days);
   const visibleDays = Array.from({ length: pageEnd - pageStart + 1 }, (_, i) => pageStart + i);
   const todayDone = stats.today ? mod.activities.filter((a, i) => a && checkSet.has(`${stats.today}-${i}`)).length : 0;
   const statCards = [
@@ -483,12 +509,6 @@ export default function Dashboard() {
             <div className="muted">{mod.subtitle}</div>
           </div>
           <div className="hero-actions">
-            {mods.length > 1 && (
-              <div className="tracker-chip">
-                <Sparkles size={15} />
-                {trackerTitle}
-              </div>
-            )}
             <button className="primary icon-button hero-add-tracker" onClick={() => setModal(true)}>
               <Plus size={18} />
               Tracker
@@ -497,21 +517,83 @@ export default function Dashboard() {
         </section>
 
         {mods.length > 1 && (
-          <div className="tabs tracker-tabs">
-            {mods.map((m) => (
+          <section className="card glass-card tracker-portfolio" aria-labelledby="tracker-portfolio-title">
+            <div className="section-title-row tracker-portfolio-heading">
+              <span className="section-icon"><Sparkles size={19} /></span>
+              <div>
+                <b id="tracker-portfolio-title">Tracker Saya</b>
+                <small className="date-hint">Pilih satu tracker untuk melihat detail. Status hari ini tetap dirangkum di bawah.</small>
+              </div>
+            </div>
+            <div className="tracker-portfolio-grid">
+              {trackerSummaries.map(({ tracker, summary }) => {
+                const todayStatus = summary.isCompleted
+                  ? "Perjalanan selesai"
+                  : summary.today?.status === "SUBMITTED"
+                    ? `Hari ini ${summary.today.progress}%`
+                    : summary.today?.status === "MISSED"
+                      ? "Hari ini missed"
+                      : summary.today
+                        ? "Perlu diisi hari ini"
+                        : "Belum berjalan";
+                return (
               <button
-                key={m.id}
-                className={`pill ${m.id === mod.id ? "active" : ""}`}
+                key={tracker.id}
+                type="button"
+                className={`tracker-summary-card ${tracker.id === mod.id ? "is-active" : ""}`}
+                aria-pressed={tracker.id === mod.id}
                 onClick={() => {
-                  setActive(m.id);
+                  setActive(tracker.id);
                   setTitleEditing(false);
                 }}
               >
-                <CheckCircle2 size={15} />
-                {m.title?.trim() || "Judul Tracker Anda"}
+                <span className="tracker-summary-topline">
+                  <strong>{tracker.title?.trim() || "Judul Tracker Anda"}</strong>
+                  <span className={`tracker-state ${summary.isCompleted ? "completed" : (summary.today?.status.toLowerCase() ?? "pending")}`}>{todayStatus}</span>
+                </span>
+                <span className="tracker-summary-metrics">
+                  <span><b>{summary.progress}%</b> progres</span>
+                  <span><b>{summary.accountability}%</b> kepatuhan</span>
+                  <span><b>{summary.today?.day ?? (summary.isCompleted ? tracker.days : 0)}</b>/{tracker.days} hari</span>
+                </span>
+                <span className="tracker-summary-progress" aria-hidden="true"><span style={{ width: `${summary.progress}%` }} /></span>
               </button>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {mods.length > 1 && todayTrackers.length > 0 && (
+          <section className="card glass-card today-priority-card" aria-labelledby="today-priority-title">
+            <div className="section-title-row">
+              <span className="section-icon"><Target size={19} /></span>
+              <div>
+                <b id="today-priority-title">Prioritas Hari Ini</b>
+                <small className="date-hint">Satu tempat untuk memastikan tidak ada tracker aktif yang terlewat.</small>
+              </div>
+            </div>
+            <div className="today-priority-list">
+              {todayTrackers.map(({ tracker, summary }) => {
+                const submitted = summary.today?.status === "SUBMITTED";
+                return (
+                  <button
+                    type="button"
+                    className={`today-priority-item ${submitted ? "is-complete" : "needs-input"}`}
+                    key={tracker.id}
+                    onClick={() => {
+                      setActive(tracker.id);
+                      window.setTimeout(() => document.getElementById("today")?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
+                    }}
+                  >
+                    <span className="today-priority-icon">{submitted ? <CheckCircle2 size={18} /> : <Circle size={16} />}</span>
+                    <span><b>{tracker.title}</b><small>{submitted ? `Tersimpan ${summary.today?.progress ?? 0}%` : "Belum diisi · buka tracker"}</small></span>
+                    <ChevronRight size={17} />
+                  </button>
+                );
+              })}
+            </div>
+          </section>
         )}
 
         {paywall && <PaywallBanner compact message={paywall} />}
@@ -563,7 +645,7 @@ export default function Dashboard() {
         )}
 
         {stats.today && filledActivities.length > 0 && mod.ownerId === user.id && (
-          <section className="card glass-card today">
+          <section className="card glass-card today" id="today">
             <div className="row between">
               <div className="section-title-row">
                 <span className="section-icon">
@@ -610,14 +692,17 @@ export default function Dashboard() {
         )}
 
         <section className="card glass-card tracker-card" id="tracker">
-          <div className="section-title-row">
-            <span className="section-icon">
-              <ClipboardList size={19} />
-            </span>
-            <div>
-              <b>Tracker {mod.days} Hari</b>
-              <p className="muted">Geser tabel ke samping untuk semua aktivitas.</p>
+          <div className="row between tracker-card-heading">
+            <div className="section-title-row">
+              <span className="section-icon">
+                <ClipboardList size={19} />
+              </span>
+              <div>
+                <b>Minggu Berjalan</b>
+                <p className="muted">Pantau ritme tanpa memenuhi dashboard dengan seluruh periode.</p>
+              </div>
             </div>
+            <span className="tracker-range-badge">Hari {pageStart}–{pageEnd} dari {mod.days}</span>
           </div>
           <div className="daily-progress-grid" aria-label="Timeline progress harian">
             {visibleDays.map((day) => {
@@ -634,73 +719,13 @@ export default function Dashboard() {
             })}
           </div>
           {filledActivities.length === 0 ? (
-            <div className="empty-state">Tambahkan aktivitas lebih dulu agar tabel tracking bisa digunakan.</div>
+            <div className="empty-state">Tambahkan aktivitas lebih dulu agar riwayat tracking bisa digunakan.</div>
           ) : (
-            <>
-              {!showAllDays && totalWeeks > 1 && (
-                <div className="tracker-pager row between">
-                  <button
-                    type="button"
-                    className="secondary icon-only"
-                    onClick={() => setWeekIndex((w) => Math.max(w - 1, 0))}
-                    disabled={safeWeekIndex === 0}
-                    aria-label="Minggu sebelumnya"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <span className="tracker-pager-label">
-                    Hari {pageStart}-{pageEnd} dari {mod.days}
-                  </span>
-                  <button
-                    type="button"
-                    className="secondary icon-only"
-                    onClick={() => setWeekIndex((w) => Math.min(w + 1, totalWeeks - 1))}
-                    disabled={safeWeekIndex >= totalWeeks - 1}
-                    aria-label="Minggu berikutnya"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-              )}
-              <div className="table-wrap">
-                <table className="tracker-grid">
-                  <thead>
-                    <tr>
-                      <th>Hari</th>
-                      {mod.activities.map((a, i) => (
-                        <th key={i}>{a || `Akt. ${i + 1}`}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleDays.map((d) => (
-                      <tr key={d}>
-                        <td>{d}</td>
-                        {mod.activities.map((a, i) => (
-                          <td key={i}>
-                            <span className="cell-label">{a || `Akt. ${i + 1}`}</span>
-                            <button
-                              disabled={!a || d !== stats.today || mod.ownerId !== user.id}
-                              aria-label={`Hari ${d} ${a}`}
-                              onClick={() => toggle(d, i)}
-                              className={`cell ${checkSet.has(`${d}-${i}`) ? "on" : ""}`}
-                              title={d === stats.today ? "Isi progress hari ini" : "Hari lampau dan mendatang terkunci"}
-                            >
-                              {checkSet.has(`${d}-${i}`) ? <Check size={15} /> : ""}
-                            </button>
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {totalWeeks > 1 && (
-                <button type="button" className="secondary tracker-toggle-all" onClick={() => setShowAllDays((v) => !v)}>
-                  {showAllDays ? "Tampilkan per minggu" : `Lihat semua ${mod.days} hari`}
-                </button>
-              )}
-            </>
+            <button type="button" className="secondary tracker-history-button" onClick={() => setHistoryOpen(true)}>
+              <BookOpenText size={17} />
+              Buka riwayat lengkap {mod.days} hari
+              <ChevronRight size={17} />
+            </button>
           )}
         </section>
 
@@ -892,6 +917,107 @@ export default function Dashboard() {
         onSettings={() => setProfileModal(true)}
         primaryLabel="Tambah tracker"
       />
+
+      {historyOpen && (
+        <div className="modal tracker-history-modal" role="presentation" onClick={() => setHistoryOpen(false)}>
+          <section
+            className="sheet glass-card tracker-history-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="tracker-history-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="row between tracker-history-header">
+              <div className="section-title-row">
+                <span className="section-icon"><BookOpenText size={19} /></span>
+                <div>
+                  <div className="eyebrow">Riwayat perjalanan</div>
+                  <h2 id="tracker-history-title">{trackerTitle} · {mod.days} hari</h2>
+                </div>
+              </div>
+              <button type="button" className="secondary" onClick={() => setHistoryOpen(false)}>Tutup</button>
+            </div>
+
+            <div className="history-overview" aria-label={`Ringkasan status ${mod.days} hari`}>
+              {Array.from({ length: mod.days }, (_, index) => index + 1).map((day) => {
+                const row = mod.dailyProgress?.find((item) => item.day === day);
+                const status = row?.status ?? "PENDING";
+                const isToday = day === stats.today;
+                const statusText = status === "MISSED" ? "missed" : status === "SUBMITTED" ? `${row?.progress ?? 0}%` : isToday ? "hari ini" : "menunggu";
+                return (
+                  <span
+                    key={day}
+                    className={`history-day status-${status.toLowerCase()} ${isToday ? "is-today" : ""}`}
+                    aria-label={`Hari ${day}, ${statusText}`}
+                    title={`Hari ${day} · ${statusText}`}
+                  >
+                    <b>{day}</b>
+                    <small>{status === "SUBMITTED" ? `${row?.progress ?? 0}%` : status === "MISSED" ? "×" : "·"}</small>
+                  </span>
+                );
+              })}
+            </div>
+            <div className="history-legend" aria-label="Legenda status">
+              <span><i className="submitted" />Submitted</span>
+              <span><i className="missed" />Missed</span>
+              <span><i className="pending" />Menunggu</span>
+              <span><i className="today" />Hari ini</span>
+            </div>
+
+            <div className="tracker-history-detail">
+              <div className="tracker-pager row between">
+                <button
+                  type="button"
+                  className="secondary icon-only"
+                  onClick={() => setWeekIndex((week) => Math.max(week - 1, 0))}
+                  disabled={safeWeekIndex === 0}
+                  aria-label="Minggu sebelumnya"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <span className="tracker-pager-label"><b>Detail aktivitas</b><small>Hari {pageStart}–{pageEnd} dari {mod.days}</small></span>
+                <button
+                  type="button"
+                  className="secondary icon-only"
+                  onClick={() => setWeekIndex((week) => Math.min(week + 1, totalWeeks - 1))}
+                  disabled={safeWeekIndex >= totalWeeks - 1}
+                  aria-label="Minggu berikutnya"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+              <div className="table-wrap">
+                <table className="tracker-grid history-grid">
+                  <thead>
+                    <tr>
+                      <th>Hari</th>
+                      {mod.activities.map((activity, index) => <th key={index}>{activity || `Akt. ${index + 1}`}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleDays.map((day) => (
+                      <tr key={day}>
+                        <td>{day}</td>
+                        {mod.activities.map((activity, index) => {
+                          const checked = checkSet.has(`${day}-${index}`);
+                          return (
+                            <td key={index}>
+                              <span className="cell-label">{activity || `Akt. ${index + 1}`}</span>
+                              <span className={`history-check ${checked ? "is-done" : ""}`} aria-label={`${activity || `Aktivitas ${index + 1}`}: ${checked ? "selesai" : "tidak selesai"}`}>
+                                {checked ? <Check size={15} /> : <span aria-hidden="true">—</span>}
+                              </span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
 
       {profileModal && (
         <div className="modal profile-modal" onClick={() => setProfileModal(false)}>
