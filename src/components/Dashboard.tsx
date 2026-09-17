@@ -86,6 +86,17 @@ function formatDate(dateIso?: string) {
   return new Intl.DateTimeFormat("id-ID", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" }).format(new Date(`${dateIso.slice(0, 10)}T00:00:00.000Z`));
 }
 
+function formatActiveDate(dateIso?: string) {
+  const value = dateIso?.slice(0, 10) || localIsoDate();
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: "UTC",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(`${value}T00:00:00.000Z`));
+}
+
 function getTrackerSummary(tracker: Mod) {
   const rows = tracker.dailyProgress ?? [];
   const submitted = rows.filter((row) => row.status === "SUBMITTED").length;
@@ -656,9 +667,15 @@ export default function Dashboard() {
                   <small className="date-hint">Selesaikan checklist kecil hari ini.</small>
                 </div>
               </div>
-              <span className="progress-badge">
-                {todayDone}/{filledActivities.length}
-              </span>
+              <div className="today-heading-meta">
+                <span className="today-date-badge">
+                  <CalendarDays size={16} />
+                  {formatActiveDate(lifecycle.today?.date)}
+                </span>
+                <span className="progress-badge">
+                  {todayDone}/{filledActivities.length}
+                </span>
+              </div>
             </div>
             <div className="today-list">
               {mod.activities.map(
@@ -684,7 +701,10 @@ export default function Dashboard() {
                   defaultValue={lifecycle.today?.progress ?? 0}
                   key={`${mod.id}-${lifecycle.today?.progress ?? 0}`}
                 />
-                <button className="primary" type="submit">Simpan progress</button>
+                <button className="primary save-progress-button" type="submit">
+                  <Save size={18} aria-hidden="true" />
+                  Simpan progress
+                </button>
               </div>
               <small className="date-hint">Checklist otomatis menghitung nilai; slider dapat dipakai untuk koreksi reflektif hari ini.</small>
             </form>
