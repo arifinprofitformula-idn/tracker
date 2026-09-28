@@ -17,6 +17,11 @@ enum UserStatus {
   SUSPENDED
 }
 
+enum ModuleStatus {
+  ACTIVE
+  ARCHIVED
+}
+
 enum WorkspaceType {
   PERSONAL
   COACH
@@ -80,6 +85,8 @@ model Module {
   startDate           DateTime?
   endDate             DateTime?
   locksActivities     Boolean              @default(true)
+  status              ModuleStatus         @default(ACTIVE)
+  archivedAt          DateTime?
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   user                User                 @relation(fields: [ownerId], references: [id], onDelete: Cascade)

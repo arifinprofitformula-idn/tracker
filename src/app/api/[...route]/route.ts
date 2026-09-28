@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { CoachInterventionType, DailyProgressAuditSource, TimeBlockStatus, UserRole, UserStatus } from "@prisma/client";
 import { createSession, hashPassword, prisma, revokeSession, SESSION_DAYS, validateSession, verifyPassword } from "@/lib/prisma";
 import { ensureOwnerProgramEnrollment } from "@/lib/programEnrollment";
-import { activityActionSchema, adminUserSchema, checkoutRequestSchema, checkSchema, coachInterventionSchema, coachInviteAcceptSchema, coachInviteSchema, coachRevokeSchema, coachSelfRevokeSchema, coachWorkspaceSchema, dailyPlanBlockActionSchema, dailyPlanCompleteSchema, dailyPlanLockSchema, dailyPlanRescheduleSchema, dailyProgressSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, profileSettingsSchema, registerSchema, settingSchema, startSchema, testimonialSchema } from "@/lib/validation";
+import { activityActionSchema, adminUserSchema, archiveSchema, checkoutRequestSchema, checkSchema, coachInterventionSchema, coachInviteAcceptSchema, coachInviteSchema, coachRevokeSchema, coachSelfRevokeSchema, coachWorkspaceSchema, dailyPlanBlockActionSchema, dailyPlanCompleteSchema, dailyPlanLockSchema, dailyPlanRescheduleSchema, dailyProgressSchema, loginSchema, moduleCreateSchema, moduleUpdateSchema, noteSchema, profileSettingsSchema, registerSchema, settingSchema, startSchema, testimonialSchema } from "@/lib/validation";
 import { findOverlappingBlock, MAX_BLOCKS_PER_DAY } from "@/lib/dailyPlan";
 import { buildDefaultPhases } from "@/lib/tracker";
 import { accessibleDailyPlanWhere, accessibleModuleWhere, assertWorkspaceMember, ensurePersonalWorkspace, findAccessibleModule, getDefaultWorkspaceIdForUser, workspaceReadRoles, workspaceWriteRoles } from "@/lib/workspace";
@@ -405,7 +405,7 @@ export async function POST(req: NextRequest) {
     const workspaceId = await getDefaultWorkspaceIdForUser(auth.userId);
     const entitlements = await getEntitlements(workspaceId);
     if (entitlements.maxActivePrograms !== -1) {
-      const activeCount = await prisma.module.count({ where: { workspaceId } });
+      const activeCount = await prisma.module.count({ where: { workspaceId, status: "ACTIVE" } });
       if (activeCount >= entitlements.maxActivePrograms) {
         return json({
           error: "Batas jumlah tracker aktif untuk paket Anda sudah tercapai. Upgrade untuk tracker unlimited.",
@@ -602,6 +602,17 @@ export async function POST(req: NextRequest) {
       });
       await initializeDailyProgress(trackerModule, tx);
       return trackerModule;
+    });
+    return json(updated);
+  }
+  if (path === "/api/modules/archive") {
+    const parsed = archiveSchema.safeParse(body); if (!parsed.success) return json({ error: "Validation failed" }, 400);
+    const owned = await ownedModule(parsed.data.moduleId, auth.userId); if (!owned) return json({ error: "Forbidden" }, 403);
+    if (owned.ownerId !== auth.userId) return json({ error: "Hanya pemilik tracker yang dapat mengarsipkan" }, 403);
+    if (parsed.data.archived === (owned.status === "ARCHIVED")) return json(owned);
+    const updated = await prisma.module.update({
+      where: { id: owned.id },
+      data: { status: parsed.data.archived ? "ARCHIVED" : "ACTIVE", archivedAt: parsed.data.archived ? new Date() : null },
     });
     return json(updated);
   }

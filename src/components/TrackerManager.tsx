@@ -6,7 +6,7 @@ import AppHeader from "@/components/AppHeader";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import ProfileSettings from "@/components/ProfileSettings";
 import { readJson } from "@/lib/http";
-import { ArrowLeft, CalendarDays, CheckCircle2, ListPlus, LoaderCircle, Lock, Save, Settings2, Trash2, XCircle } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeft, CalendarDays, CheckCircle2, ListPlus, LoaderCircle, Lock, Save, Settings2, Trash2, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type User = { id: string; name: string; email: string; role: string };
@@ -20,6 +20,7 @@ type Tracker = {
   startDate?: string;
   endDate?: string;
   locksActivities: boolean;
+  status: "ACTIVE" | "ARCHIVED";
 };
 
 const headers = { "Content-Type": "application/json" };
@@ -161,6 +162,28 @@ export default function TrackerManager() {
     }
   }
 
+  async function archiveTracker(archived: boolean) {
+    if (!tracker) return;
+    if (archived && !window.confirm(`Arsipkan tracker "${tracker.title}"? Tracker akan disembunyikan dari dashboard, tapi riwayat progres tidak dihapus.`)) return;
+    setBusy("archive");
+    setNotice(null);
+    try {
+      const response = await fetch("/api/modules/archive", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ moduleId: tracker.id, archived }),
+      });
+      const data = await readJson<{ error?: string }>(response);
+      if (!response.ok) throw new Error(data.error || "Gagal memperbarui status tracker.");
+      await load();
+      setNotice({ type: "success", text: archived ? "Tracker berhasil diarsipkan dan disembunyikan dari dashboard." : "Tracker berhasil diaktifkan kembali." });
+    } catch (error) {
+      setNotice({ type: "error", text: error instanceof Error ? error.message : "Gagal memperbarui status tracker." });
+    } finally {
+      setBusy("");
+    }
+  }
+
   if (!user) {
     return <main className="auth-shell"><div className="eyebrow">Memuat pengaturan tracker...</div></main>;
   }
@@ -182,7 +205,9 @@ export default function TrackerManager() {
             <label className="tracker-manager-selector">
               <span>Tracker aktif</span>
               <select value={active} onChange={(event) => { setActive(event.target.value); setNotice(null); }}>
-                {trackers.map((item) => <option value={item.id} key={item.id}>{item.title}</option>)}
+                {trackers.map((item) => (
+                  <option value={item.id} key={item.id}>{item.title}{item.status === "ARCHIVED" ? " (Diarsipkan)" : ""}</option>
+                ))}
               </select>
             </label>
           )}
@@ -260,6 +285,31 @@ export default function TrackerManager() {
                     <button className="primary icon-button" disabled={activityCount >= 10 || busy !== ""}>{busy === "activity" ? <LoaderCircle className="spin" size={18} /> : <ListPlus size={18} />}Tambah</button>
                   </form>
                 </>
+              )}
+            </section>
+
+            <section className="card glass-card tracker-manager-card tracker-manager-archive-card">
+              <div className="section-title-row">
+                <span className="section-icon">{tracker.status === "ARCHIVED" ? <ArchiveRestore size={19} /> : <Archive size={19} />}</span>
+                <div>
+                  <b>Status tracker</b>
+                  <p className="muted">
+                    {tracker.status === "ARCHIVED"
+                      ? "Tracker ini diarsipkan dan tidak muncul di dashboard utama."
+                      : "Sembunyikan tracker dari dashboard tanpa menghapus riwayat progresnya."}
+                  </p>
+                </div>
+              </div>
+              {tracker.status === "ARCHIVED" ? (
+                <button className="secondary icon-button" type="button" disabled={busy !== ""} onClick={() => archiveTracker(false)}>
+                  {busy === "archive" ? <LoaderCircle className="spin" size={18} /> : <ArchiveRestore size={18} />}
+                  {busy === "archive" ? "Mengaktifkan..." : "Aktifkan kembali"}
+                </button>
+              ) : (
+                <button className="danger icon-button" type="button" disabled={busy !== ""} onClick={() => archiveTracker(true)}>
+                  {busy === "archive" ? <LoaderCircle className="spin" size={18} /> : <Archive size={18} />}
+                  {busy === "archive" ? "Mengarsipkan..." : "Arsipkan tracker"}
+                </button>
               )}
             </section>
           </div>

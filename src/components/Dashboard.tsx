@@ -54,6 +54,7 @@ type Mod = {
   startDate?: string;
   endDate?: string;
   locksActivities: boolean;
+  status: "ACTIVE" | "ARCHIVED";
   checks: Check[];
   notes: Note[];
   phases: Phase[];
@@ -123,6 +124,7 @@ export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [mods, setMods] = useState<Mod[]>([]);
+  const [loading, setLoading] = useState(true);
   const [active, setActive] = useState("");
   const [modal, setModal] = useState(false);
   const [profileModal, setProfileModal] = useState(false);
@@ -147,22 +149,40 @@ export default function Dashboard() {
   const visionMenuAction = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async () => {
-    const s = await fetch("/api/auth/session");
-    if (s.status === 401) {
-      router.replace("/login");
-      return;
-    }
-    const sj = await s.json();
-    setUser(sj.user);
-    const r = await fetch("/api/modules");
-    if (r.ok) {
-      const m = await r.json();
-      setMods(m);
-      setActive((current) => {
-        if (current && m.some((tracker: Mod) => tracker.id === current)) return current;
-        const today = localIsoDate();
-        return m.find((tracker: Mod) => !tracker.endDate || tracker.endDate.slice(0, 10) >= today)?.id || m[0]?.id || "";
-      });
+    setError("");
+    try {
+      const s = await fetch("/api/auth/session");
+      if (s.status === 401) {
+        router.replace("/login");
+        return;
+      }
+      const sj = await readJson<{ user?: User; error?: string }>(s);
+      if (!s.ok || !sj.user) {
+        setError(sj.error || "Gagal memuat sesi");
+        return;
+      }
+      setUser(sj.user);
+      const r = await fetch("/api/modules");
+      if (r.ok) {
+        const moduleData = await readJson(r);
+        if (!Array.isArray(moduleData)) {
+          setError("Gagal memuat tracker");
+          return;
+        }
+        const m = (moduleData as Mod[]).filter((tracker) => tracker.status !== "ARCHIVED");
+        setMods(m);
+        setActive((current) => {
+          if (current && m.some((tracker) => tracker.id === current)) return current;
+          const today = localIsoDate();
+          return m.find((tracker) => !tracker.endDate || tracker.endDate.slice(0, 10) >= today)?.id || m[0]?.id || "";
+        });
+      } else {
+        setError("Gagal memuat tracker");
+      }
+    } catch {
+      setError("Tidak bisa menghubungi server. Coba lagi.");
+    } finally {
+      setLoading(false);
     }
   }, [router]);
 
@@ -512,11 +532,152 @@ export default function Dashboard() {
     await load();
   }
 
-  if (!user || !mod) {
+  const createModal = modal && (
+    <div className="modal" onClick={() => setModal(false)}>
+      <form className="sheet glass-card" onClick={(e) => e.stopPropagation()} onSubmit={create}>
+        <div className="row between">
+          <div className="section-title-row">
+            <span className="section-icon">
+              <Plus size={19} />
+            </span>
+            <h2>Tracker baru</h2>
+          </div>
+          <button type="button" className="secondary" onClick={() => setModal(false)}>
+            Tutup
+          </button>
+        </div>
+        <div className="field">
+          <label>Nama tracker</label>
+          <input name="title" required maxLength={50} placeholder="Belajar, Olahraga, Kerja Proyek" />
+        </div>
+        <div className="field">
+          <label>Tagline tracker</label>
+          <input name="tagline" maxLength={80} placeholder="Fondasi Ketenangan" />
+          <small className="date-hint">Format tampilan: Jumlah Hari — Tagline Anda.</small>
+        </div>
+        <div className="field">
+          <label>Tanggal berakhir</label>
+          <input
+            name="endDate"
+            type="date"
+            min={addDaysIso(localIsoDate(), 39)}
+            max={addDaysIso(localIsoDate(), 99)}
+            value={createEndDate}
+            onChange={(event) => setCreateEndDate(event.target.value)}
+            required
+          />
+          <small className="date-hint">Mulai otomatis hari ini · minimal 40 hari dan maksimal 100 hari.</small>
+        </div>
+        <div className="field">
+          <label>Aktivitas perubahan</label>
+          <textarea
+            name="activities"
+            rows={4}
+            required
+            placeholder={"Satu aktivitas per baris\nContoh: Olahraga 20 menit\nMembaca 10 halaman"}
+          />
+          <small className="date-hint">Isi 1–10 aktivitas konkret. Aktivitas masih dapat dirapikan selama hari pertama.</small>
+        </div>
+        <div className="field">
+          <label>Perjalanan fase</label>
+          <small className="date-hint">Rentang hari akan dibagi otomatis sesuai jumlah hari, label dan target bisa Anda sesuaikan.</small>
+          <div className="phase-create-list">
+            {TRACKER_PHASE_DEFAULTS.map((phase, idx) => (
+              <div className="phase-create-item" key={phase.label}>
+                <div className="row between">
+                  <b>Fase {idx + 1}</b>
+                  <input
+                    name={`phaseTarget-${idx}`}
+                    type="number"
+                    min="1"
+                    max="100"
+                    defaultValue={phase.targetPercent}
+                    aria-label={`Target fase ${idx + 1}`}
+                  />
+                </div>
+                <input name={`phaseLabel-${idx}`} defaultValue={phase.label} maxLength={80} required aria-label={`Label fase ${idx + 1}`} />
+                <textarea
+                  name={`phaseDescription-${idx}`}
+                  defaultValue={phase.description}
+                  maxLength={180}
+                  required
+                  aria-label={`Deskripsi fase ${idx + 1}`}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="tracker-fresh-state">
+          <div className="row between">
+            <span>Komitmen periode</span>
+            <b>{Math.round((new Date(`${createEndDate}T00:00:00.000Z`).getTime() - new Date(`${localIsoDate()}T00:00:00.000Z`).getTime()) / 86_400_000) + 1} hari</b>
+          </div>
+          <div className="activity-progress" aria-hidden="true">
+            <span style={{ width: "100%" }} />
+          </div>
+          <small className="date-hint">Setelah dibuat, tanggal mulai dan berakhir tidak dapat diubah.</small>
+        </div>
+        <button className="primary full icon-button">
+          <Plus size={18} />
+          Buat tracker
+        </button>
+      </form>
+    </div>
+  );
+
+  if (loading) {
     return (
       <main className="auth-shell">
         <div className="eyebrow">Memuat tracker...</div>
       </main>
+    );
+  }
+
+  if (!user) {
+    return (
+      <main className="auth-shell">
+        <div className="eyebrow">{error || "Gagal memuat sesi. Muat ulang halaman."}</div>
+        <button className="primary" onClick={() => { setLoading(true); load(); }}>
+          Coba lagi
+        </button>
+      </main>
+    );
+  }
+
+  if (!mod) {
+    return (
+      <div className="shell dashboard-shell">
+        <AppHeader user={user} active="dashboard" onProfile={() => setProfileModal(true)} onLogout={logout} />
+        <main className="content dashboard-content" id="overview">
+          <section className="hero dashboard-hero">
+            <div>
+              <div className="eyebrow">Halo, {user.name}</div>
+              <h1>Belum ada tracker</h1>
+              <p className="muted">{error || "Mulai perjalanan Anda dengan membuat tracker pertama."}</p>
+            </div>
+            <div className="hero-actions">
+              <button className="primary icon-button hero-add-tracker" onClick={() => setModal(true)}>
+                <Plus size={18} />
+                Buat Tracker
+              </button>
+            </div>
+          </section>
+        </main>
+        <MobileBottomNav
+          active="dashboard"
+          onPrimary={() => setModal(true)}
+          onSettings={() => setProfileModal(true)}
+          primaryLabel="Tambah tracker"
+        />
+        {createModal}
+        {profileModal && (
+          <div className="modal profile-modal" onClick={() => setProfileModal(false)}>
+            <div className="profile-modal-panel" onClick={(e) => e.stopPropagation()}>
+              <ProfileSettings onClose={() => setProfileModal(false)} onSaved={(updated) => setUser(updated)} />
+            </div>
+          </div>
+        )}
+      </div>
     );
   }
 
@@ -1136,98 +1297,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {modal && (
-        <div className="modal" onClick={() => setModal(false)}>
-          <form className="sheet glass-card" onClick={(e) => e.stopPropagation()} onSubmit={create}>
-            <div className="row between">
-              <div className="section-title-row">
-                <span className="section-icon">
-                  <Plus size={19} />
-                </span>
-                <h2>Tracker baru</h2>
-              </div>
-              <button type="button" className="secondary" onClick={() => setModal(false)}>
-                Tutup
-              </button>
-            </div>
-            <div className="field">
-              <label>Nama tracker</label>
-              <input name="title" required maxLength={50} placeholder="Belajar, Olahraga, Kerja Proyek" />
-            </div>
-            <div className="field">
-              <label>Tagline tracker</label>
-              <input name="tagline" maxLength={80} placeholder="Fondasi Ketenangan" />
-              <small className="date-hint">Format tampilan: Jumlah Hari — Tagline Anda.</small>
-            </div>
-            <div className="field">
-              <label>Tanggal berakhir</label>
-              <input
-                name="endDate"
-                type="date"
-                min={addDaysIso(localIsoDate(), 39)}
-                max={addDaysIso(localIsoDate(), 99)}
-                value={createEndDate}
-                onChange={(event) => setCreateEndDate(event.target.value)}
-                required
-              />
-              <small className="date-hint">Mulai otomatis hari ini · minimal 40 hari dan maksimal 100 hari.</small>
-            </div>
-            <div className="field">
-              <label>Aktivitas perubahan</label>
-              <textarea
-                name="activities"
-                rows={4}
-                required
-                placeholder={"Satu aktivitas per baris\nContoh: Olahraga 20 menit\nMembaca 10 halaman"}
-              />
-              <small className="date-hint">Isi 1–10 aktivitas konkret. Aktivitas masih dapat dirapikan selama hari pertama.</small>
-            </div>
-            <div className="field">
-              <label>Perjalanan fase</label>
-              <small className="date-hint">Rentang hari akan dibagi otomatis sesuai jumlah hari, label dan target bisa Anda sesuaikan.</small>
-              <div className="phase-create-list">
-                {TRACKER_PHASE_DEFAULTS.map((phase, idx) => (
-                  <div className="phase-create-item" key={phase.label}>
-                    <div className="row between">
-                      <b>Fase {idx + 1}</b>
-                      <input
-                        name={`phaseTarget-${idx}`}
-                        type="number"
-                        min="1"
-                        max="100"
-                        defaultValue={phase.targetPercent}
-                        aria-label={`Target fase ${idx + 1}`}
-                      />
-                    </div>
-                    <input name={`phaseLabel-${idx}`} defaultValue={phase.label} maxLength={80} required aria-label={`Label fase ${idx + 1}`} />
-                    <textarea
-                      name={`phaseDescription-${idx}`}
-                      defaultValue={phase.description}
-                      maxLength={180}
-                      required
-                      aria-label={`Deskripsi fase ${idx + 1}`}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="tracker-fresh-state">
-              <div className="row between">
-                <span>Komitmen periode</span>
-                <b>{Math.round((new Date(`${createEndDate}T00:00:00.000Z`).getTime() - new Date(`${localIsoDate()}T00:00:00.000Z`).getTime()) / 86_400_000) + 1} hari</b>
-              </div>
-              <div className="activity-progress" aria-hidden="true">
-                <span style={{ width: "100%" }} />
-              </div>
-              <small className="date-hint">Setelah dibuat, tanggal mulai dan berakhir tidak dapat diubah.</small>
-            </div>
-            <button className="primary full icon-button">
-              <Plus size={18} />
-              Buat tracker
-            </button>
-          </form>
-        </div>
-      )}
+      {createModal}
 
       {testimonialOpen && (
         <div className="modal testimonial-modal" role="presentation">

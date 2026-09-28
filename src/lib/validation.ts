@@ -25,6 +25,7 @@ export const activityActionSchema = z.discriminatedUnion("action", [
 export const checkSchema = z.object({ moduleId: z.string().cuid(), day: z.number().int().min(1), activityIdx: z.number().int().min(0).max(9) });
 export const noteSchema = z.object({ moduleId: z.string().cuid(), phaseKey: z.string().trim().min(1).max(80), content: z.string().max(2000) });
 export const startSchema = z.object({ moduleId: z.string().cuid(), startDate: z.string().date() });
+export const archiveSchema = z.object({ moduleId: z.string().cuid(), archived: z.boolean() });
 export const dailyProgressSchema = z.object({
   day: z.number().int().min(1),
   progress: z.number().int().min(0).max(100),
