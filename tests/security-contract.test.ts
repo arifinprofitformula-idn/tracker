@@ -79,6 +79,17 @@ describe("production security contract", () => {
     expect(schema).toMatch(/@@unique\(\[provider, providerEventId\]\)/);
   });
 
+  it("keeps tracker vision media private and tenant-scoped", () => {
+    const schema = source("prisma/schema.prisma");
+    const api = apiSource();
+    expect(schema).toMatch(/model TrackerVisionImage/);
+    expect(schema).toMatch(/@@index\(\[workspaceId, userId\]\)/);
+    expect(api).toMatch(/trackerVisionImage/);
+    expect(api).toMatch(/userId: auth\.userId/);
+    expect(api).toMatch(/accessibleModuleWhere\(auth\.userId/);
+    expect(api).toMatch(/readVisionImage|persistVisionImage/);
+  });
+
   it("provides public health, session, admin, and tracker endpoints", () => {
     const api = apiSource();
     expect(api).toMatch(/api\/health/);

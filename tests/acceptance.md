@@ -22,6 +22,9 @@
 - User can toggle a daily check and persist notes/start date.
 - Completion, perfect days, streak, phase progress, strongest/weakest are correct.
 - Deleted tracker data cascades only within owner's records.
+- User can upload up to 10 private JPEG/PNG/WebP dream images per tracker, see two images per slider page, and delete only their own images.
+- Vision images cannot be read or mutated by another user, including through a guessed media URL.
+- Deleting an image or tracker removes its private stored media without exposing the storage filename to the client.
 - New tracker starts automatically today and requires an inclusive end date at least 40 days later in duration.
 - Start/end dates and duration cannot be changed after the tracker starts.
 - Every tracker day has one persistent progress row; an elapsed unfilled day becomes `MISSED` with 0%.
@@ -36,6 +39,9 @@
 - Offline fallback loads.
 - Dashboard is default authenticated destination.
 - Mobile viewport has no page-level horizontal overflow.
+- The active tracker vision board and compact progress/day/streak/target metrics appear before tracker portfolio details and remain responsive.
+- Vision images have no permanent delete overlay: long-press on mobile, right-click on desktop, and the keyboard context-menu shortcut expose a confirmed delete action without breaking swipe navigation.
+- The dashboard tracker title is read-only and icon-free; title, period, and activity editing live on the authenticated `/tracker` management page.
 - Initial document and critical assets use compression and sane caching.
 
 ## Production

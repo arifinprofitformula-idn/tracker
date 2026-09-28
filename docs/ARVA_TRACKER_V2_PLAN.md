@@ -147,3 +147,13 @@ Slice lintas fase ini ditambahkan pada 2026-09-17 untuk memperkuat North Star Pr
 - Kepatuhan input dan nilai progress dipisahkan agar metrik tidak menutupi kualitas pelaksanaan.
 - Input hanya untuk hari berjalan; Daily Plan tetap domain independen.
 - Akhir periode memicu testimonial/refleksi hasil nyata yang persisten.
+
+## 12. Tracker Vision Board
+
+Slice motivasi visual ini ditambahkan pada 2026-09-28 tanpa mengubah urutan fase V2:
+
+- Setiap pengguna mempunyai kumpulan gambar impian pribadi pada setiap tracker yang dapat ia kelola.
+- Dashboard menampilkan dua gambar per slide bersama empat metrik tracker ringkas pada area layar pertama.
+- Metadata disimpan secara workspace-aware di PostgreSQL; file disimpan privat di storage self-hosted dan hanya disajikan melalui endpoint berotorisasi.
+- Upload JPEG/PNG/WebP dibatasi, divalidasi, diperkecil, dibersihkan dari metadata, dan dinormalisasi ke WebP.
+- Vision board tidak ikut terbuka melalui consent Coach Mode; perlu keputusan privacy terpisah jika kelak hendak dibagikan.

@@ -54,6 +54,7 @@ model User {
   dailyProgress       DailyProgress[]
   dailyProgressAudits DailyProgressAudit[] @relation("DailyProgressAuditActor")
   trackerTestimonials TrackerTestimonial[]
+  trackerVisionImages TrackerVisionImage[]
 }
 
 model Session {
@@ -91,6 +92,7 @@ model Module {
   dailyProgress       DailyProgress[]
   dailyProgressAudits DailyProgressAudit[]
   testimonials        TrackerTestimonial[]
+  visionImages        TrackerVisionImage[]
 
   @@index([ownerId])
   @@index([workspaceId])
@@ -113,6 +115,7 @@ model Workspace {
   billingTransactions BillingTransaction[]
   coachClientLinks    CoachClientLink[]
   coachInterventions  CoachIntervention[]
+  trackerVisionImages TrackerVisionImage[]
 
   @@index([ownerId, type])
 }
@@ -325,6 +328,27 @@ model TrackerTestimonial {
 
   @@unique([moduleId, userId])
   @@index([userId, createdAt])
+}
+
+model TrackerVisionImage {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  moduleId     String
+  userId       String
+  storageKey   String    @unique
+  originalName String
+  mimeType     String    @default("image/webp")
+  sizeBytes    Int
+  width        Int
+  height       Int
+  position     Int       @default(0)
+  createdAt    DateTime  @default(now())
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  module       Module    @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, userId])
+  @@index([moduleId, userId, position])
 }
 
 model Plan {

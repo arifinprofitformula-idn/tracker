@@ -13,6 +13,8 @@ npm run build
 
 Production uses dedicated `tracker_system` PostgreSQL database and PM2 on port 3500 behind Caddy.
 
+Tracker vision-board uploads use private local storage. Set `TRACKER_VISION_UPLOAD_DIR` to a persistent directory outside the release checkout (for example `/var/lib/arva-tracker/vision-images`), grant the PM2 user read/write access, cap request bodies at Caddy, and include this directory in production backups together with PostgreSQL.
+
 ## Local database
 
 This project uses PostgreSQL through Prisma. The local database is stored in `.local/postgres-data` and uses the PostgreSQL binary bundled with Laragon.

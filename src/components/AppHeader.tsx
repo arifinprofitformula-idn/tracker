@@ -13,7 +13,7 @@ type HeaderUser = {
 
 type AppHeaderProps = {
   user?: HeaderUser | null;
-  active?: "dashboard" | "admin" | "daily-plan" | "billing" | "coach";
+  active?: "dashboard" | "tracker" | "admin" | "daily-plan" | "billing" | "coach";
   onProfile?: () => void;
   onLogout: () => void;
 };
@@ -84,9 +84,9 @@ export default function AppHeader({ user, active = "dashboard", onProfile, onLog
               <CalendarClock size={16} />
               Daily Plan
             </Link>
-            <Link href="/dashboard#tracker" onClick={() => setOpen(false)}>
+            <Link className={active === "tracker" ? "active" : ""} href="/tracker" onClick={() => setOpen(false)}>
               <ClipboardList size={16} />
-              Tracker
+              Kelola Tracker
             </Link>
             <Link className={active === "billing" ? "active" : ""} href="/billing" onClick={() => setOpen(false)}>
               <CreditCard size={16} />

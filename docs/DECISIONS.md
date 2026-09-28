@@ -67,3 +67,15 @@ Format: `#N — YYYY-MM-DD — Judul singkat`
 **Alasan:** Accountability membutuhkan bukti hari kosong, bukan hanya absence of rows. Pemisahan nilai progress dari kepatuhan mencegah input 20% dihitung sama dengan 100%, sementara testimonial menutup perjalanan dengan refleksi hasil nyata.
 
 **Konsekuensi:** `DailyPlan` tetap independen. Mutation progress hanya berlaku untuk hari berjalan, semua transisi dicatat di `DailyProgressAudit`, dan tracker lama dimigrasikan melalui script backfill additive.
+
+---
+
+### #6 — 2026-09-28 — Vision board tracker memakai media privat self-hosted
+
+**Konteks:** Pengguna perlu menjaga gambaran hasil hidup yang ingin diwujudkan tetap terlihat bersama progress tracker. Gambar bersifat personal dan tidak boleh otomatis terbuka kepada coach atau anggota workspace lain.
+
+**Keputusan:** Metadata gambar disimpan di `TrackerVisionImage` dengan scope `workspaceId + moduleId + userId`; byte gambar disimpan di direktori persisten self-hosted di luar `public`. Akses media selalu melewati session cookie dan pemeriksaan tracker/workspace. Upload dinormalisasi menjadi WebP dan metadata file dibuang.
+
+**Alasan:** File di `public` mempunyai URL langsung dan tidak bisa diberi authorization per pengguna. Penyimpanan privat mempertahankan prinsip self-hosted sekaligus mencegah gambar impian bocor melalui URL yang dapat ditebak.
+
+**Konsekuensi:** Direktori `TRACKER_VISION_UPLOAD_DIR` wajib persisten dan masuk backup production bersama database. Penghapusan gambar/tracker membersihkan metadata database dan file fisik; coach sharing tidak mencakup vision board tanpa keputusan consent baru.

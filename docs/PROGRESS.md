@@ -1,5 +1,16 @@
 # Progress — Arva Tracker V2
 
+## 2026-09-28 — Tracker vision board
+
+- Schema dan migration additive `TrackerVisionImage` dengan scope workspace, tracker, dan user.
+- File gambar disimpan privat secara self-hosted, dinormalisasi ke WebP, dan tidak memakai URL `public`.
+- Dashboard dibuat lebih bersih: aksi hapus gambar dibuka melalui long-press/klik kanan dan judul tracker tampil read-only tanpa ikon edit.
+- Pengeditan judul, periode, dan aktivitas dipindahkan ke halaman khusus `/tracker`, dengan navigasi desktop dan mobile yang konsisten.
+- API upload/read/delete memeriksa sesi serta akses workspace; media setiap pengguna tetap personal.
+- Dashboard menampilkan slider dua kolom dan empat kartu metrik ringkas pada area layar pertama.
+- Loading, empty, error, delete, touch swipe, responsive state, unit test, security contract, dan UI contract tersedia.
+- Deployment production masih harus menjalankan migration serta menyiapkan persistent `TRACKER_VISION_UPLOAD_DIR` dan backup direktorinya.
+
 ## 2026-09-17 — Tracker accountability lifecycle
 
 - Tracker baru otomatis mulai hari pembuatan dengan `endDate` inklusif 40–100 hari dan aktivitas awal wajib.

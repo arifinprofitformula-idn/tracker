@@ -4,7 +4,7 @@ import Link from "next/link";
 import { BarChart3, CalendarClock, CreditCard, Home, Plus, Settings } from "lucide-react";
 
 type MobileBottomNavProps = {
-  active: "dashboard" | "daily-plan" | "admin" | "billing";
+  active: "dashboard" | "tracker" | "daily-plan" | "admin" | "billing";
   onPrimary: () => void;
   onSettings?: () => void;
   primaryLabel?: string;
@@ -24,7 +24,7 @@ export default function MobileBottomNav({ active, onPrimary, onSettings, primary
       <button className="mobile-primary-action" type="button" onClick={onPrimary} aria-label={primaryLabel}>
         <Plus size={26} />
       </button>
-      <Link href="/dashboard#tracker" aria-label="Tracker">
+      <Link className={active === "tracker" ? "active" : ""} href="/tracker" aria-label="Kelola Tracker">
         <BarChart3 size={20} />
         <span>Tracker</span>
       </Link>

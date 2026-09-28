@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import MobileBottomNav from "@/components/MobileBottomNav";
@@ -19,22 +20,22 @@ import {
   ClipboardList,
   Flame,
   Gauge,
-  ListPlus,
+  ImagePlus,
+  Images,
+  LoaderCircle,
   Lock,
   Mountain,
   MessageSquareQuote,
   NotebookPen,
-  PencilLine,
   Plus,
   Rocket,
   Save,
-  Settings2,
   Sparkles,
   Target,
   Trash2,
   Trophy,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { calculatePhaseStats } from "@/lib/tracker";
 
 type Check = { day: number; activityIdx: number };
@@ -42,6 +43,7 @@ type Note = { phaseKey: string; content: string };
 type Phase = { label: string; startDay: number; endDay: number; description: string; targetPercent: number };
 type DailyProgress = { day: number; date: string; progress: number; status: "PENDING" | "SUBMITTED" | "MISSED" };
 type Testimonial = { id: string; content: string };
+type VisionImage = { id: string; width: number; height: number; position: number; createdAt: string };
 type Mod = {
   id: string;
   ownerId: string;
@@ -57,8 +59,10 @@ type Mod = {
   phases: Phase[];
   dailyProgress: DailyProgress[];
   testimonials: Testimonial[];
+  visionImages: VisionImage[];
 };
 type User = { id: string; name: string; email: string; role: string };
+type VisionMenu = { imageId: string; imageNumber: number; x: number; y: number };
 
 const headers = { "Content-Type": "application/json" };
 const PHASE_ICONS = [Rocket, Flame, Mountain, Trophy];
@@ -122,8 +126,6 @@ export default function Dashboard() {
   const [active, setActive] = useState("");
   const [modal, setModal] = useState(false);
   const [profileModal, setProfileModal] = useState(false);
-  const [titleEditing, setTitleEditing] = useState(false);
-  const [titleDraft, setTitleDraft] = useState("");
   const [weekIndex, setWeekIndex] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [error, setError] = useState("");
@@ -134,6 +136,15 @@ export default function Dashboard() {
   const [testimonialDraft, setTestimonialDraft] = useState("");
   const [testimonialDismissed, setTestimonialDismissed] = useState("");
   const [remindersEnabled, setRemindersEnabled] = useState(false);
+  const [visionPage, setVisionPage] = useState(0);
+  const [visionUploading, setVisionUploading] = useState(false);
+  const [visionDeleting, setVisionDeleting] = useState("");
+  const [visionTouchStart, setVisionTouchStart] = useState<number | null>(null);
+  const [visionMenu, setVisionMenu] = useState<VisionMenu | null>(null);
+  const [showVisionHint, setShowVisionHint] = useState(false);
+  const visionPressTimer = useRef<number | null>(null);
+  const visionPressStart = useRef<{ x: number; y: number } | null>(null);
+  const visionMenuAction = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async () => {
     const s = await fetch("/api/auth/session");
@@ -193,7 +204,6 @@ export default function Dashboard() {
     () => trackerSummaries.filter(({ summary }) => summary.today && !summary.isCompleted).sort((a, b) => Number(a.summary.today?.status === "SUBMITTED") - Number(b.summary.today?.status === "SUBMITTED")),
     [trackerSummaries],
   );
-  const activityCount = mod?.activities.filter(Boolean).length ?? 0;
   const phaseStatsList = useMemo(() => {
     if (!mod) return [];
     const checksByIndex = mod.checks.map((c) => ({ day: c.day, activityIndex: c.activityIdx }));
@@ -204,6 +214,44 @@ export default function Dashboard() {
     setWeekIndex(stats.today ? Math.floor((stats.today - 1) / 7) : 0);
     setHistoryOpen(false);
   }, [mod, stats.today]);
+
+  useEffect(() => {
+    setVisionPage(0);
+  }, [mod?.id]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil((mod?.visionImages?.length ?? 0) / 2));
+    setVisionPage(current => Math.min(current, totalPages - 1));
+  }, [mod?.visionImages?.length]);
+
+  useEffect(() => {
+    if (!mod?.visionImages?.length) {
+      setShowVisionHint(false);
+      return;
+    }
+    setShowVisionHint(localStorage.getItem("vision-image-actions-discovered") !== "yes");
+  }, [mod?.id, mod?.visionImages?.length]);
+
+  useEffect(() => {
+    if (!visionMenu) return;
+    visionMenuAction.current?.focus();
+    const closeMenu = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setVisionMenu(null);
+    };
+    const closeFromViewportChange = () => setVisionMenu(null);
+    window.addEventListener("keydown", closeMenu);
+    window.addEventListener("resize", closeFromViewportChange);
+    window.addEventListener("scroll", closeFromViewportChange, true);
+    return () => {
+      window.removeEventListener("keydown", closeMenu);
+      window.removeEventListener("resize", closeFromViewportChange);
+      window.removeEventListener("scroll", closeFromViewportChange, true);
+    };
+  }, [visionMenu]);
+
+  useEffect(() => () => {
+    if (visionPressTimer.current) window.clearTimeout(visionPressTimer.current);
+  }, []);
 
   useEffect(() => {
     if (!historyOpen) return;
@@ -276,34 +324,6 @@ export default function Dashboard() {
     return true;
   }
 
-  async function patchModule(body: unknown, success: string) {
-    const r = await fetch("/api/modules", { method: "PATCH", headers, body: JSON.stringify(body) });
-    const data = await readJson<{ error?: string }>(r);
-    if (!r.ok) {
-      setNotice("");
-      setError(data.error || "Gagal menyimpan tracker");
-      return false;
-    }
-    setError("");
-    setNotice(success);
-    await load();
-    return true;
-  }
-
-  async function activityAction(body: unknown, success: string) {
-    const r = await fetch("/api/modules/activities", { method: "POST", headers, body: JSON.stringify(body) });
-    const data = await readJson<{ error?: string }>(r);
-    if (!r.ok) {
-      setNotice("");
-      setError(data.error || "Gagal menyimpan aktivitas");
-      return false;
-    }
-    setError("");
-    setNotice(success);
-    await load();
-    return true;
-  }
-
   async function toggle(day: number, activityIdx: number) {
     if (mod) await post("/api/modules/checks", { moduleId: mod.id, day, activityIdx });
   }
@@ -342,6 +362,94 @@ export default function Dashboard() {
     setRemindersEnabled(true);
     setError("");
     setNotice("Pengingat progress harian aktif pukul 20:00.");
+  }
+
+  async function uploadVisionImages(event: React.ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
+    if (!mod || !files.length) return;
+    if ((mod.visionImages?.length ?? 0) + files.length > 10) {
+      setNotice("");
+      setError("Maksimal 10 gambar impian per tracker.");
+      input.value = "";
+      return;
+    }
+    const formData = new FormData();
+    files.forEach(file => formData.append("images", file));
+    setVisionUploading(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/trackers/${mod.id}/vision-images`, { method: "POST", body: formData });
+      const data = await readJson<{ error?: string }>(response);
+      if (!response.ok) {
+        setError(data.error || "Gagal mengunggah gambar impian.");
+        return;
+      }
+      setNotice(files.length > 1 ? `${files.length} gambar impian berhasil ditambahkan.` : "Gambar impian berhasil ditambahkan.");
+      await load();
+      setVisionPage(Math.floor((mod.visionImages?.length ?? 0) / 2));
+    } catch {
+      setError("Koneksi terputus saat mengunggah gambar.");
+    } finally {
+      setVisionUploading(false);
+      input.value = "";
+    }
+  }
+
+  async function deleteVisionImage(imageId: string) {
+    if (!mod || !window.confirm("Hapus gambar impian ini?")) return;
+    setVisionDeleting(imageId);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/trackers/${mod.id}/vision-images/${imageId}`, { method: "DELETE" });
+      const data = await readJson<{ error?: string }>(response);
+      if (!response.ok) {
+        setError(data.error || "Gagal menghapus gambar impian.");
+        return;
+      }
+      setNotice("Gambar impian berhasil dihapus.");
+      await load();
+    } catch {
+      setError("Koneksi terputus saat menghapus gambar.");
+    } finally {
+      setVisionDeleting("");
+    }
+  }
+
+  function cancelVisionLongPress() {
+    if (visionPressTimer.current) window.clearTimeout(visionPressTimer.current);
+    visionPressTimer.current = null;
+    visionPressStart.current = null;
+  }
+
+  function openVisionActions(imageId: string, imageNumber: number, clientX: number, clientY: number) {
+    cancelVisionLongPress();
+    localStorage.setItem("vision-image-actions-discovered", "yes");
+    setShowVisionHint(false);
+    setVisionMenu({
+      imageId,
+      imageNumber,
+      x: Math.max(12, Math.min(clientX, window.innerWidth - 200)),
+      y: Math.max(12, Math.min(clientY, window.innerHeight - 76)),
+    });
+  }
+
+  function startVisionLongPress(event: React.PointerEvent<HTMLElement>, imageId: string, imageNumber: number) {
+    if (event.pointerType === "mouse") return;
+    cancelVisionLongPress();
+    visionPressStart.current = { x: event.clientX, y: event.clientY };
+    visionPressTimer.current = window.setTimeout(() => {
+      navigator.vibrate?.(20);
+      openVisionActions(imageId, imageNumber, event.clientX, event.clientY);
+    }, 550);
+  }
+
+  function moveVisionLongPress(event: React.PointerEvent<HTMLElement>) {
+    const start = visionPressStart.current;
+    if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) <= 10) return;
+    cancelVisionLongPress();
   }
 
   async function logout() {
@@ -385,55 +493,6 @@ export default function Dashboard() {
     if (data.id) setActive(data.id);
   }
 
-  async function updateTrackerTitle(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!mod) return;
-    const title = titleDraft.trim();
-    if (!title) {
-      setNotice("");
-      setError("Judul tracker tidak boleh kosong");
-      return;
-    }
-    if (title.length > 50) {
-      setNotice("");
-      setError("Judul tracker maksimal 50 karakter");
-      return;
-    }
-    if (await patchModule({ moduleId: mod.id, title }, "Judul tracker berhasil diperbarui.")) setTitleEditing(false);
-  }
-
-  async function addActivity(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!mod) return;
-    if (activityCount >= 10) {
-      setError("Maksimal 10 aktivitas per tracker");
-      setNotice("");
-      return;
-    }
-    const form = e.currentTarget;
-    const name = String(new FormData(form).get("name") || "").trim();
-    if (await activityAction({ action: "add", moduleId: mod.id, name }, "Aktivitas berhasil ditambahkan.")) form.reset();
-  }
-
-  async function updateActivity(e: React.FormEvent<HTMLFormElement>, activityIdx: number) {
-    e.preventDefault();
-    if (!mod) return;
-    const name = String(new FormData(e.currentTarget).get("name") || "").trim();
-    await activityAction({ action: "update", moduleId: mod.id, activityIdx, name }, "Aktivitas berhasil diperbarui.");
-  }
-
-  async function deleteActivity(activityIdx: number) {
-    if (!mod) return;
-    await activityAction({ action: "delete", moduleId: mod.id, activityIdx }, "Aktivitas berhasil dihapus.");
-  }
-
-  async function startLegacyTracker() {
-    if (!mod) return;
-    if (await post("/api/modules/start-date", { moduleId: mod.id, startDate: localIsoDate() })) {
-      setNotice("Tracker dimulai hari ini. Tanggal mulai dan berakhir kini terkunci.");
-    }
-  }
-
   async function submitTestimonial(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!mod) return;
@@ -464,19 +523,20 @@ export default function Dashboard() {
   const checkSet = new Set(mod.checks.map((c) => `${c.day}-${c.activityIdx}`));
   const filledActivities = mod.activities.filter(Boolean);
   const trackerTitle = mod.title?.trim() || "Judul Tracker Anda";
-  const needsSetup = filledActivities.length === 0 || !mod.startDate;
-  const activitiesLocked = mod.locksActivities && !!mod.startDate && localIsoDate() > mod.startDate.slice(0, 10);
   const totalWeeks = Math.ceil(mod.days / 7);
   const safeWeekIndex = Math.min(weekIndex, totalWeeks - 1);
   const pageStart = safeWeekIndex * 7 + 1;
   const pageEnd = Math.min(pageStart + 6, mod.days);
   const visibleDays = Array.from({ length: pageEnd - pageStart + 1 }, (_, i) => pageStart + i);
   const todayDone = stats.today ? mod.activities.filter((a, i) => a && checkSet.has(`${stats.today}-${i}`)).length : 0;
+  const visionImages = mod.visionImages ?? [];
+  const visionPageCount = Math.max(1, Math.ceil(visionImages.length / 2));
+  const visibleVisionImages = visionImages.slice(visionPage * 2, visionPage * 2 + 2);
   const statCards = [
-    { label: "Progress Perubahan", value: `${lifecycle.progress}%`, icon: Gauge },
-    { label: "Hari Terisi", value: `${lifecycle.submitted}/${mod.days}`, icon: Trophy },
-    { label: "Streak Hari", value: stats.streak, icon: Flame },
-    { label: "Hari Ke-", value: stats.today || "-", icon: Target },
+    { label: "Progress", value: `${lifecycle.progress}%`, icon: Gauge },
+    { label: "Pencapaian", value: `${lifecycle.submitted}/${mod.days}`, icon: Trophy },
+    { label: "Streak", value: stats.streak, icon: Flame },
+    { label: "Target Hari", value: `${stats.today || 0}/${mod.days}`, icon: Target },
   ];
 
   return (
@@ -487,37 +547,14 @@ export default function Dashboard() {
         <section className="hero dashboard-hero">
           <div>
             <div className="eyebrow">Halo, {user.name}</div>
-            {titleEditing ? (
-              <form className="title-edit-form" onSubmit={updateTrackerTitle}>
-                <input
-                  value={titleDraft}
-                  onChange={(e) => setTitleDraft(e.target.value)}
-                  maxLength={50}
-                  required
-                  autoFocus
-                  aria-label="Judul tracker"
-                />
-                <button className="primary icon-only" type="submit" aria-label="Simpan judul tracker">
-                  <Save size={16} />
-                </button>
-              </form>
-            ) : (
-              <h1>
-                <button
-                  className="title-inline"
-                  type="button"
-                  onClick={() => {
-                    setTitleDraft(trackerTitle);
-                    setTitleEditing(true);
-                  }}
-                  aria-label="Edit judul tracker"
-                >
-                  <span>{trackerTitle}</span>
-                  <PencilLine size={18} />
-                </button>
-              </h1>
-            )}
-            <div className="muted">{mod.subtitle}</div>
+            <h1>
+              <span className="tracker-title-card">
+                <span className="tracker-title-copy">
+                  <span className="tracker-title-text">{trackerTitle}</span>
+                  <small className="tracker-title-tagline">{mod.subtitle}</small>
+                </span>
+              </span>
+            </h1>
           </div>
           <div className="hero-actions">
             <button className="primary icon-button hero-add-tracker" onClick={() => setModal(true)}>
@@ -526,6 +563,165 @@ export default function Dashboard() {
             </button>
           </div>
         </section>
+
+        {paywall && <PaywallBanner compact message={paywall} />}
+        {error && !paywall && <p className="error">{error}</p>}
+        {notice && <p className="notice success">{notice}</p>}
+
+        <div className="dashboard-focus-grid">
+          <section className="card glass-card vision-board" aria-labelledby="vision-board-title">
+            <div className="vision-board-heading">
+              <div className="section-title-row">
+                <div>
+                  <b id="vision-board-title">Visualisasi Impian</b>
+                  <small className="date-hint">Ingat alasan terbesar di balik perubahan ini.</small>
+                </div>
+              </div>
+              <label aria-label="Tambah gambar impian" className={`secondary vision-upload-button ${visionUploading || visionImages.length >= 10 ? "is-disabled" : ""}`}>
+                {visionUploading ? <LoaderCircle className="spin" size={17} /> : <ImagePlus size={17} />}
+                {visionUploading ? "Memproses..." : "Tambah Gambar"}
+                <input
+                  className="vision-file-input"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  disabled={visionUploading || visionImages.length >= 10}
+                  onChange={uploadVisionImages}
+                />
+              </label>
+            </div>
+
+            {visionImages.length === 0 ? (
+              <div className="vision-empty">
+                <span><Images size={28} /></span>
+                <div>
+                  <b>Apa perubahan terbesar yang ingin Anda wujudkan?</b>
+                  <p>Tambahkan foto rumah, keluarga, perjalanan, karya, atau kehidupan yang sedang Anda perjuangkan.</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div
+                  className="vision-slider"
+                  onTouchStart={event => setVisionTouchStart(event.changedTouches[0]?.clientX ?? null)}
+                  onTouchEnd={event => {
+                    if (visionTouchStart === null || visionPageCount < 2) return;
+                    const delta = event.changedTouches[0]?.clientX - visionTouchStart;
+                    if (delta > 40) setVisionPage(current => Math.max(0, current - 1));
+                    if (delta < -40) setVisionPage(current => Math.min(visionPageCount - 1, current + 1));
+                    setVisionTouchStart(null);
+                  }}
+                >
+                  {visibleVisionImages.map((image, index) => (
+                    <figure
+                      className={`vision-image ${visionDeleting === image.id ? "is-deleting" : ""}`}
+                      key={image.id}
+                      tabIndex={0}
+                      aria-haspopup="menu"
+                      aria-label={`Gambar impian ${visionPage * 2 + index + 1}. Tekan lama atau buka menu konteks untuk pilihan.`}
+                      onContextMenu={event => {
+                        event.preventDefault();
+                        openVisionActions(image.id, visionPage * 2 + index + 1, event.clientX, event.clientY);
+                      }}
+                      onKeyDown={event => {
+                        if (!(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) return;
+                        event.preventDefault();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        openVisionActions(image.id, visionPage * 2 + index + 1, rect.left + rect.width / 2, rect.top + rect.height / 2);
+                      }}
+                      onPointerDown={event => startVisionLongPress(event, image.id, visionPage * 2 + index + 1)}
+                      onPointerMove={moveVisionLongPress}
+                      onPointerUp={cancelVisionLongPress}
+                      onPointerCancel={cancelVisionLongPress}
+                      onPointerLeave={cancelVisionLongPress}
+                    >
+                      <Image
+                        src={`/api/trackers/${mod.id}/vision-images/${image.id}`}
+                        alt={`Gambar impian ${visionPage * 2 + index + 1} untuk ${trackerTitle}`}
+                        fill
+                        sizes="(max-width: 767px) 44vw, (max-width: 1200px) 34vw, 360px"
+                        unoptimized
+                      />
+                      {visionDeleting === image.id && (
+                        <span className="vision-deleting-status" role="status" aria-label="Menghapus gambar">
+                          <LoaderCircle className="spin" size={20} />
+                        </span>
+                      )}
+                    </figure>
+                  ))}
+                  {visibleVisionImages.length === 1 && visionImages.length < 10 && (
+                    <label className="vision-add-tile">
+                      <ImagePlus size={22} />
+                      <span>Tambah impian lain</span>
+                      <input className="vision-file-input" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={visionUploading} onChange={uploadVisionImages} />
+                    </label>
+                  )}
+                </div>
+                {visionPageCount > 1 && (
+                  <div className="vision-controls" aria-label="Navigasi gambar impian">
+                    <button type="button" aria-label="Slide sebelumnya" disabled={visionPage === 0} onClick={() => setVisionPage(current => Math.max(0, current - 1))}><ChevronLeft size={18} /></button>
+                    <span className="vision-dots">
+                      {Array.from({ length: visionPageCount }, (_, index) => (
+                        <button key={index} type="button" className={index === visionPage ? "active" : ""} aria-label={`Buka slide ${index + 1}`} aria-current={index === visionPage ? "true" : undefined} onClick={() => setVisionPage(index)} />
+                      ))}
+                    </span>
+                    <button type="button" aria-label="Slide berikutnya" disabled={visionPage === visionPageCount - 1} onClick={() => setVisionPage(current => Math.min(visionPageCount - 1, current + 1))}><ChevronRight size={18} /></button>
+                  </div>
+                )}
+                {showVisionHint && (
+                  <p className="vision-gesture-hint">Tekan lama gambar di mobile atau klik kanan di desktop untuk melihat pilihan.</p>
+                )}
+              </>
+            )}
+
+            {visionMenu && (
+              <div
+                className="vision-action-layer"
+                role="presentation"
+                onPointerDown={event => {
+                  if (event.target === event.currentTarget) setVisionMenu(null);
+                }}
+                onContextMenu={event => event.preventDefault()}
+              >
+                <div
+                  className="vision-action-menu"
+                  role="menu"
+                  aria-label={`Pilihan gambar impian ${visionMenu.imageNumber}`}
+                  style={{ left: visionMenu.x, top: visionMenu.y }}
+                >
+                  <span className="vision-action-title">Pilihan gambar</span>
+                  <button
+                    ref={visionMenuAction}
+                    type="button"
+                    role="menuitem"
+                    className="vision-action-delete"
+                    onClick={() => {
+                      const imageId = visionMenu.imageId;
+                      setVisionMenu(null);
+                      void deleteVisionImage(imageId);
+                    }}
+                  >
+                    <Trash2 size={17} />
+                    Hapus gambar
+                  </button>
+                  <button type="button" role="menuitem" className="vision-action-cancel" onClick={() => setVisionMenu(null)}>
+                    Batal
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="grid-stats compact-stats" aria-label="Ringkasan tracker aktif">
+            {statCards.map(({ label, value, icon: Icon }) => (
+              <div className="card stat glass-card" key={label}>
+                <span className="stat-icon"><Icon size={18} /></span>
+                <b>{value}</b>
+                <span>{label}</span>
+              </div>
+            ))}
+          </section>
+        </div>
 
         {mods.length > 1 && (
           <section className="card glass-card tracker-portfolio" aria-labelledby="tracker-portfolio-title">
@@ -548,27 +744,24 @@ export default function Dashboard() {
                         ? "Perlu diisi hari ini"
                         : "Belum berjalan";
                 return (
-              <button
-                key={tracker.id}
-                type="button"
-                className={`tracker-summary-card ${tracker.id === mod.id ? "is-active" : ""}`}
-                aria-pressed={tracker.id === mod.id}
-                onClick={() => {
-                  setActive(tracker.id);
-                  setTitleEditing(false);
-                }}
-              >
-                <span className="tracker-summary-topline">
-                  <strong>{tracker.title?.trim() || "Judul Tracker Anda"}</strong>
-                  <span className={`tracker-state ${summary.isCompleted ? "completed" : (summary.today?.status.toLowerCase() ?? "pending")}`}>{todayStatus}</span>
-                </span>
-                <span className="tracker-summary-metrics">
-                  <span><b>{summary.progress}%</b> progres</span>
-                  <span><b>{summary.accountability}%</b> kepatuhan</span>
-                  <span><b>{summary.today?.day ?? (summary.isCompleted ? tracker.days : 0)}</b>/{tracker.days} hari</span>
-                </span>
-                <span className="tracker-summary-progress" aria-hidden="true"><span style={{ width: `${summary.progress}%` }} /></span>
-              </button>
+                  <button
+                    key={tracker.id}
+                    type="button"
+                    className={`tracker-summary-card ${tracker.id === mod.id ? "is-active" : ""}`}
+                    aria-pressed={tracker.id === mod.id}
+                    onClick={() => setActive(tracker.id)}
+                  >
+                    <span className="tracker-summary-topline">
+                      <strong>{tracker.title?.trim() || "Judul Tracker Anda"}</strong>
+                      <span className={`tracker-state ${summary.isCompleted ? "completed" : (summary.today?.status.toLowerCase() ?? "pending")}`}>{todayStatus}</span>
+                    </span>
+                    <span className="tracker-summary-metrics">
+                      <span><b>{summary.progress}%</b> progres</span>
+                      <span><b>{summary.accountability}%</b> kepatuhan</span>
+                      <span><b>{summary.today?.day ?? (summary.isCompleted ? tracker.days : 0)}</b>/{tracker.days} hari</span>
+                    </span>
+                    <span className="tracker-summary-progress" aria-hidden="true"><span style={{ width: `${summary.progress}%` }} /></span>
+                  </button>
                 );
               })}
             </div>
@@ -606,22 +799,6 @@ export default function Dashboard() {
             </div>
           </section>
         )}
-
-        {paywall && <PaywallBanner compact message={paywall} />}
-        {error && !paywall && <p className="error">{error}</p>}
-        {notice && <p className="notice success">{notice}</p>}
-
-        <section className="grid-stats">
-          {statCards.map(({ label, value, icon: Icon }) => (
-            <div className="card stat glass-card" key={label}>
-              <span className="stat-icon">
-                <Icon size={22} />
-              </span>
-              <b>{value}</b>
-              <span>{label}</span>
-            </div>
-          ))}
-        </section>
 
         <section className="card glass-card accountability-card">
           <div className="row between accountability-heading">
@@ -748,94 +925,6 @@ export default function Dashboard() {
             </button>
           )}
         </section>
-
-        <details className="settings-disclosure card glass-card" open={needsSetup}>
-          <summary className="section-title-row">
-            <span className="section-icon">
-              <Settings2 size={19} />
-            </span>
-            <div>
-              <b>Pengaturan tracker</b>
-              <p className="muted">Tanggal mulai dan daftar aktivitas yang ditrack.</p>
-            </div>
-          </summary>
-
-          <div className="settings-disclosure-body">
-            <div className="settings-block">
-              <div className="section-title-row">
-                <span className="section-icon">
-                  <CalendarDays size={19} />
-                </span>
-                <div>
-                  <b>Periode accountability</b>
-                  <small className="date-hint">Tanggal dikunci setelah tracker dimulai.</small>
-                </div>
-              </div>
-              {mod.startDate && mod.endDate ? (
-                <div className="locked-period">
-                  <Lock size={16} />
-                  <span><b>{formatDate(mod.startDate)}</b> sampai <b>{formatDate(mod.endDate)}</b></span>
-                </div>
-              ) : (
-                <button className="primary" type="button" onClick={startLegacyTracker}>Aktifkan periode tracker lama</button>
-              )}
-            </div>
-
-            <div className="settings-block">
-              <div className="section-title-row">
-                <span className="section-icon">
-                  <ListPlus size={19} />
-                </span>
-                <div>
-                  <b>Kelola aktivitas</b>
-                  <p className="muted">
-                    {activitiesLocked
-                      ? "Aktivitas terkunci karena project sudah dimulai. Aktivitas bersifat tetap sepanjang perjalanan habit ini."
-                      : "Tambahkan, edit, atau hapus aktivitas yang ingin Anda track. Maksimal 10 aktivitas. Susunan aktivitas dikunci setelah hari pertama."}
-                  </p>
-                </div>
-              </div>
-              {activitiesLocked ? (
-                <p className="notice success activity-locked-notice">
-                  <Lock size={14} />
-                  Aktivitas tracker ini tetap ({filledActivities.length} aktivitas) selama project berjalan.
-                </p>
-              ) : (
-                <>
-                  <div className="activity-count">
-                    {activityCount}/10 aktivitas digunakan
-                  </div>
-                  <div className="activity-progress" aria-hidden="true">
-                    <span style={{ width: `${activityCount * 10}%` }} />
-                  </div>
-                  <div className="activity-list">
-                    {mod.activities.length === 0 && (
-                      <div className="empty-state">Belum ada aktivitas. Tambahkan aktivitas pertama untuk mulai tracking.</div>
-                    )}
-                    {mod.activities.map((activity, idx) => (
-                      <form className="activity-row" key={`${mod.id}-${idx}-${activity}`} onSubmit={(e) => updateActivity(e, idx)}>
-                        <input name="name" defaultValue={activity} maxLength={60} required aria-label={`Edit aktivitas ${activity}`} />
-                        <button className="secondary icon-only" type="submit" aria-label="Simpan perubahan aktivitas">
-                          <Save size={16} />
-                        </button>
-                        <button className="danger icon-only" type="button" onClick={() => deleteActivity(idx)} aria-label={`Hapus aktivitas ${activity}`}>
-                          <Trash2 size={16} />
-                        </button>
-                      </form>
-                    ))}
-                  </div>
-                  <form className="activity-add" onSubmit={addActivity}>
-                    <input name="name" placeholder={activityCount >= 10 ? "Batas maksimal 10 aktivitas tercapai" : "Tambah aktivitas baru"} maxLength={60} disabled={activityCount >= 10} required />
-                    <button className="primary icon-button" disabled={activityCount >= 10}>
-                      <Plus size={18} />
-                      Tambah
-                    </button>
-                  </form>
-                </>
-              )}
-            </div>
-          </div>
-        </details>
 
         {mod.phases.length > 0 && (
           <section id="phases">

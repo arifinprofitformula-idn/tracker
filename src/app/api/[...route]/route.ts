@@ -12,6 +12,7 @@ import { getPaymentConfiguration } from "@/lib/payment";
 import { getBillingSummary, getBillingTransactionStatus } from "@/lib/billingSummary";
 import { acceptCoachInvite, addCoachIntervention, createCoachInvite, ensureCoachWorkspace, getCoachClientDetail, getCoachWorkspaceSummary, listCoachClients, listOwnCoachConsents, previewCoachInvite, revokeCoachClientLink, revokeOwnCoachConsent } from "@/lib/coach";
 import { canEditTrackerActivities, calculateDailyProgressSummary, dayNumberForDate, endDateForDuration, hasTrackerEnded, initializeDailyProgress, isoDateInTimeZone, progressFromChecklist, reconcileMissedDailyProgress, submitDailyProgress, trackerPeriod } from "@/lib/trackerLifecycle";
+import { MAX_VISION_UPLOAD_REQUEST_BYTES, persistVisionImage, prepareVisionImage, readVisionImage, removeVisionImage, validateVisionUploadBatch } from "@/lib/visionImages";
 
 const COOKIE = process.env.SESSION_COOKIE_NAME || "tracker_session";
 const globalForAttempts = globalThis as unknown as { attempts?: Map<string, { count: number; reset: number }>; attemptsCleanup?: ReturnType<typeof setInterval> };
@@ -25,6 +26,22 @@ if (!globalForAttempts.attemptsCleanup) {
 }
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 const route = (req: NextRequest) => req.nextUrl.pathname;
+const visionImageSelect = { id: true, width: true, height: true, position: true, createdAt: true } as const;
+
+function visionImageError(error: unknown) {
+  const code = error instanceof Error ? error.message : "VISION_IMAGE_FAILED";
+  const errors: Record<string, { error: string; status: number }> = {
+    VISION_IMAGE_REQUIRED: { error: "Pilih minimal satu gambar.", status: 400 },
+    VISION_UPLOAD_BATCH_LIMIT: { error: "Maksimal 5 gambar dalam satu kali upload.", status: 400 },
+    VISION_IMAGE_LIMIT: { error: "Maksimal 10 gambar impian per tracker.", status: 409 },
+    VISION_IMAGE_SIZE: { error: "Ukuran setiap gambar maksimal 5 MB.", status: 413 },
+    VISION_IMAGE_TYPE: { error: "Format gambar harus JPEG, PNG, atau WebP.", status: 415 },
+    VISION_IMAGE_ANIMATED: { error: "Gambar animasi belum didukung.", status: 415 },
+    VISION_IMAGE_INVALID: { error: "File gambar tidak valid.", status: 400 },
+  };
+  const response = errors[code] ?? { error: "Gagal memproses gambar.", status: 400 };
+  return json(response, response.status);
+}
 
 function sameOrigin(req: NextRequest) {
   const origin = req.headers.get("origin");
@@ -67,6 +84,31 @@ export async function GET(req: NextRequest) {
   }
   const auth = await actor(req);
   if (!auth) return json({ error: "Unauthorized" }, 401);
+  const visionImageMatch = path.match(/^\/api\/trackers\/([^/]+)\/vision-images\/([^/]+)$/);
+  if (visionImageMatch) {
+    const image = await prisma.trackerVisionImage.findFirst({
+      where: {
+        id: visionImageMatch[2],
+        moduleId: visionImageMatch[1],
+        userId: auth.userId,
+        module: { is: accessibleModuleWhere(auth.userId) },
+      },
+      select: { storageKey: true, mimeType: true },
+    });
+    if (!image) return json({ error: "Not found" }, 404);
+    try {
+      return new Response(await readVisionImage(image.storageKey), {
+        headers: {
+          "Content-Type": image.mimeType,
+          "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return json({ error: "Not found" }, 404);
+      throw error;
+    }
+  }
   if (path === "/api/auth/session" || path === "/api/me") {
     const user = await prisma.user.findUnique({ where: { id: auth.userId }, select: { id: true, name: true, email: true, role: true, status: true } });
     return json({ user });
@@ -81,6 +123,7 @@ export async function GET(req: NextRequest) {
         phases: { orderBy: { position: "asc" } },
         dailyProgress: { where: { userId: auth.userId }, orderBy: { day: "asc" } },
         testimonials: { where: { userId: auth.userId } },
+        visionImages: { where: { userId: auth.userId }, select: visionImageSelect, orderBy: [{ position: "asc" }, { createdAt: "asc" }] },
       },
       orderBy: { createdAt: "asc" },
     });
@@ -97,6 +140,7 @@ export async function GET(req: NextRequest) {
         phases: { orderBy: { position: "asc" } },
         dailyProgress: { where: { userId: auth.userId }, orderBy: { day: "asc" } },
         testimonials: { where: { userId: auth.userId } },
+        visionImages: { where: { userId: auth.userId }, select: visionImageSelect, orderBy: [{ position: "asc" }, { createdAt: "asc" }] },
       },
     });
     if (!trackerModule) return json({ error: "Not found" }, 404);
@@ -214,7 +258,49 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return json({ error: "Invalid origin" }, 403);
-  const path = route(req); let body: unknown;
+  const path = route(req);
+  const visionUploadMatch = path.match(/^\/api\/trackers\/([^/]+)\/vision-images$/);
+  if (visionUploadMatch) {
+    const contentLength = Number(req.headers.get("content-length") || 0);
+    if (contentLength > MAX_VISION_UPLOAD_REQUEST_BYTES) return json({ error: "Total upload terlalu besar." }, 413);
+    const auth = await actor(req); if (!auth) return json({ error: "Unauthorized" }, 401);
+    const tracker = await ownedModule(visionUploadMatch[1], auth.userId); if (!tracker) return json({ error: "Forbidden" }, 403);
+    let formData: FormData;
+    try { formData = await req.formData(); } catch { return json({ error: "Form upload tidak valid." }, 400); }
+    const files = formData.getAll("images").filter((value): value is File => value instanceof File);
+    const currentCount = await prisma.trackerVisionImage.count({ where: { moduleId: tracker.id, userId: auth.userId } });
+    try {
+      validateVisionUploadBatch(files, currentCount);
+      const prepared = await Promise.all(files.map(prepareVisionImage));
+      try {
+        await Promise.all(prepared.map(persistVisionImage));
+        const last = await prisma.trackerVisionImage.aggregate({ where: { moduleId: tracker.id, userId: auth.userId }, _max: { position: true } });
+        const startPosition = (last._max.position ?? -1) + 1;
+        const created = await prisma.$transaction(prepared.map((image, index) => prisma.trackerVisionImage.create({
+          data: {
+            workspaceId: tracker.workspaceId,
+            moduleId: tracker.id,
+            userId: auth.userId,
+            storageKey: image.storageKey,
+            originalName: image.originalName,
+            mimeType: image.mimeType,
+            sizeBytes: image.sizeBytes,
+            width: image.width,
+            height: image.height,
+            position: startPosition + index,
+          },
+          select: visionImageSelect,
+        })));
+        return json({ images: created }, 201);
+      } catch (error) {
+        await Promise.all(prepared.map(image => removeVisionImage(image.storageKey).catch(() => undefined)));
+        throw error;
+      }
+    } catch (error) {
+      return visionImageError(error);
+    }
+  }
+  let body: unknown;
   try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
   if (path === "/api/auth/register") {
     if (limited(req)) return json({ error: "Too many attempts" }, 429);
@@ -596,6 +682,25 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   if (!sameOrigin(req)) return json({ error: "Invalid origin" }, 403);
   const auth = await actor(req); if (!auth) return json({ error: "Unauthorized" }, 401);
+  const visionImageMatch = route(req).match(/^\/api\/trackers\/([^/]+)\/vision-images\/([^/]+)$/);
+  if (visionImageMatch) {
+    const image = await prisma.trackerVisionImage.findFirst({
+      where: {
+        id: visionImageMatch[2],
+        moduleId: visionImageMatch[1],
+        userId: auth.userId,
+        module: { is: accessibleModuleWhere(auth.userId, workspaceWriteRoles) },
+      },
+      select: { id: true, storageKey: true },
+    });
+    if (!image) return json({ error: "Not found" }, 404);
+    await prisma.trackerVisionImage.delete({ where: { id: image.id } });
+    await removeVisionImage(image.storageKey).catch(error => console.error("vision-image-cleanup-failed", image.id, error));
+    return json({ success: true });
+  }
   const moduleId = req.nextUrl.searchParams.get("moduleId"); if (!moduleId || !await ownedModule(moduleId, auth.userId)) return json({ error: "Forbidden" }, 403);
-  await prisma.module.delete({ where: { id: moduleId } }); return json({ success: true });
+  const files = await prisma.trackerVisionImage.findMany({ where: { moduleId }, select: { storageKey: true } });
+  await prisma.module.delete({ where: { id: moduleId } });
+  await Promise.all(files.map(file => removeVisionImage(file.storageKey).catch(error => console.error("vision-image-cleanup-failed", moduleId, error))));
+  return json({ success: true });
 }
